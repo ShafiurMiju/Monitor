@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ODL Monitor Client</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      width: 100%;
+      max-width: 400px;
+      padding: 30px;
+    }
+
+    h2 {
+      color: #333;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #555;
+      font-weight: 500;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 5px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button.secondary {
+      background: white;
+      color: #667eea;
+      border: 2px solid #667eea;
+    }
+
+    button.success {
+      background: #4caf50;
+    }
+
+    button.danger {
+      background: #f44336;
+    }
+
+    button.logout {
+      margin-top: 10px;
+    }
+
+    .toggle-link {
+      text-align: center;
+      margin-top: 15px;
+      color: #667eea;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .toggle-link:hover {
+      text-decoration: underline;
+    }
+
+    .message {
+      padding: 10px;
+      border-radius: 5px;
+      margin-bottom: 15px;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .message.error {
+      background: #ffebee;
+      color: #c62828;
+      border: 1px solid #ef9a9a;
+    }
+
+    .message.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+      border: 1px solid #a5d6a7;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .user-info {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+
+    .user-info p {
+      margin: 5px 0;
+      color: #555;
+      font-size: 14px;
+    }
+
+    .user-info strong {
+      color: #333;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+
+    .status.monitoring {
+      background: #4caf50;
+      color: white;
+    }
+
+    .status.stopped {
+      background: #ff9800;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Login Form -->
+    <div id="loginForm">
+      <h2>🔐 Login</h2>
+      <div id="loginMessage" class="message hidden"></div>
+      <form id="loginFormElement">
+        <div class="form-group">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" required>
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" required>
+        </div>
+        <button type="submit">Login</button>
+      </form>
+      <div class="toggle-link" onclick="toggleForms()">
+        Don't have an account? Sign up
+      </div>
+    </div>
+
+    <!-- Signup Form -->
+    <div id="signupForm" class="hidden">
+      <h2>📝 Sign Up</h2>
+      <div id="signupMessage" class="message hidden"></div>
+      <form id="signupFormElement">
+        <div class="form-group">
+          <label for="signupUsername">Username</label>
+          <input type="text" id="signupUsername" required>
+        </div>
+        <div class="form-group">
+          <label for="signupEmail">Email</label>
+          <input type="email" id="signupEmail" required>
+        </div>
+        <div class="form-group">
+          <label for="signupPassword">Password</label>
+          <input type="password" id="signupPassword" required minlength="6">
+        </div>
+        <button type="submit">Sign Up</button>
+      </form>
+      <div class="toggle-link" onclick="toggleForms()">
+        Already have an account? Login
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden">
+      <h2>🖥️ Monitor Dashboard</h2>
+      <div class="user-info">
+        <p><strong>Username:</strong> <span id="userName"></span></p>
+        <p><strong>Computer:</strong> <span id="computerName"></span></p>
+        <p><strong>Status:</strong> <span id="statusBadge" class="status stopped">Stopped</span></p>
+      </div>
+      <button id="startBtn" class="success" onclick="startMonitoring()">
+        ▶️ Start Monitoring
+      </button>
+      <button id="stopBtn" class="danger hidden" onclick="stopMonitoring()">
+        ⏹️ Stop Monitoring
+      </button>
+      <button class="secondary logout" onclick="logout()">
+        🚪 Logout
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    function toggleForms() {
+      document.getElementById('loginForm').classList.toggle('hidden');
+      document.getElementById('signupForm').classList.toggle('hidden');
+      clearMessages();
+    }
+
+    function showMessage(elementId, message, isError = false) {
+      const messageEl = document.getElementById(elementId);
+      messageEl.textContent = message;
+      messageEl.className = `message ${isError ? 'error' : 'success'}`;
+      messageEl.classList.remove('hidden');
+    }
+
+    function clearMessages() {
+      document.getElementById('loginMessage').classList.add('hidden');
+      document.getElementById('signupMessage').classList.add('hidden');
+    }
+
+    function showDashboard(user) {
+      document.getElementById('loginForm').classList.add('hidden');
+      document.getElementById('signupForm').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      document.getElementById('userName').textContent = user.username;
+      document.getElementById('computerName').textContent = user.computerName;
+    }
+
+    function logout() {
+      document.getElementById('dashboard').classList.add('hidden');
+      document.getElementById('loginForm').classList.remove('hidden');
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
+      clearMessages();
+    }
+
+    async function startMonitoring() {
+      const result = await ipcRenderer.invoke('start-monitoring');
+      if (result.success) {
+        document.getElementById('startBtn').classList.add('hidden');
+        document.getElementById('stopBtn').classList.remove('hidden');
+        document.getElementById('statusBadge').textContent = 'Monitoring';
+        document.getElementById('statusBadge').className = 'status monitoring';
+      } else {
+        alert('Failed to start monitoring: ' + result.message);
+      }
+    }
+
+    async function stopMonitoring() {
+      const result = await ipcRenderer.invoke('stop-monitoring');
+      if (result.success) {
+        document.getElementById('stopBtn').classList.add('hidden');
+        document.getElementById('startBtn').classList.remove('hidden');
+        document.getElementById('statusBadge').textContent = 'Stopped';
+        document.getElementById('statusBadge').className = 'status stopped';
+      } else {
+        alert('Failed to stop monitoring: ' + result.message);
+      }
+    }
+
+    // Handle login form submission
+    document.getElementById('loginFormElement').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const email = document.getElementById('loginEmail').value;
+      const password = document.getElementById('loginPassword').value;
+
+      const result = await ipcRenderer.invoke('login', { email, password });
+      
+      if (result.success) {
+        showMessage('loginMessage', 'Login successful!', false);
+        setTimeout(() => showDashboard(result.user), 500);
+      } else {
+        showMessage('loginMessage', result.message, true);
+      }
+    });
+
+    // Handle signup form submission
+    document.getElementById('signupFormElement').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const username = document.getElementById('signupUsername').value;
+      const email = document.getElementById('signupEmail').value;
+      const password = document.getElementById('signupPassword').value;
+
+      const result = await ipcRenderer.invoke('signup', { username, email, password });
+      
+      if (result.success) {
+        showMessage('signupMessage', 'Registration successful!', false);
+        setTimeout(() => showDashboard(result.user), 500);
+      } else {
+        showMessage('signupMessage', result.message, true);
+      }
+    });
+  </script>
+</body>
+</html>
