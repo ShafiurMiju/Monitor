@@ -1,18 +1,47 @@
 {
-  "name": "client-agent",
+  "name": "odl-monitor-client",
   "version": "1.0.0",
-  "description": "",
+  "description": "ODL Monitor Client Agent",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win --x64",
+    "build:dir": "electron-builder --dir"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "build": {
+    "appId": "com.odlmonitor.client",
+    "productName": "ODL Monitor Client",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "ODL-Monitor-Client-Portable.exe"
+    },
+    "electronUpdaterCompatibility": ">=2.16",
+    "asar": true
+  },
   "dependencies": {
-    "electron": "^39.0.0",
+    "axios": "^1.13.1",
     "macaddress": "^0.5.3",
     "screenshot-desktop": "^1.15.3",
     "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^25.1.8"
   }
 }
