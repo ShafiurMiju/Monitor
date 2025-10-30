@@ -4,8 +4,8 @@ import { io } from "socket.io-client";
 import axios from 'axios';
 import './App.css';
 
-const socket = io("http://localhost:4000"); // Connect to our server
-const SERVER_URL = "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const socket = io(SERVER_URL); // Connect to our server
 
 function App() {
   const [users, setUsers] = useState([]);
