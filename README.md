@@ -191,9 +191,31 @@ const JWT_SECRET = 'your-secret-key-change-in-production';
 - Socket.IO Client
 - axios
 
+## 🌐 Deployment
+
+### Ready for Production!
+
+The application is configured for Vercel deployment:
+
+- ✅ Server ready for Vercel
+- ✅ Admin Dashboard ready for Vercel  
+- ✅ Client Application executable built
+
+**Quick Deployment:**
+- See [DEPLOYMENT_READY.md](./DEPLOYMENT_READY.md) for quick start
+- See [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) for detailed deployment guide
+
+**Client Application:**
+The Windows executable is ready at:
+```
+client-agent/dist/win-unpacked/ODL Monitor Client.exe
+```
+
 ## 📝 Documentation
 
 For detailed setup instructions and troubleshooting, see:
+- [DEPLOYMENT_READY.md](./DEPLOYMENT_READY.md) - Quick deployment summary
+- [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md) - Complete Vercel deployment guide
 - [SETUP_GUIDE.md](./SETUP_GUIDE.md) - Complete setup and usage guide
 - [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) - Technical implementation details
 

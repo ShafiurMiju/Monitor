@@ -21,22 +21,18 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "portable",
           "arch": [
             "x64"
           ]
         }
       ]
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+    "portable": {
+      "artifactName": "ODL-Monitor-Client-Portable.exe"
     },
-    "asarUnpack": [
-      "node_modules/**/*"
-    ]
+    "electronUpdaterCompatibility": ">=2.16",
+    "asar": true
   },
   "dependencies": {
     "axios": "^1.13.1",

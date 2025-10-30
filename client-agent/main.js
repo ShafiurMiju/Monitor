@@ -5,8 +5,9 @@ const macaddress = require('macaddress');
 const screenshot = require('screenshot-desktop');
 const axios = require('axios');
 const os = require('os');
+const config = require('./config');
 
-const SERVER_URL = 'http://localhost:4000';
+const SERVER_URL = config.SERVER_URL;
 let mainWindow = null;
 let socket = null;
 let streamingInterval = null;

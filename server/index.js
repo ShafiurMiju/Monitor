@@ -1,4 +1,5 @@
 // server/index.js
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
@@ -22,7 +23,7 @@ connectDB();
 app.use(cors());
 app.use(express.json());
 
-const JWT_SECRET = 'your-secret-key-change-in-production'; // Change this in production!
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const connectedClients = new Map(); // Stores MAC address and socket ID
 
 // ============ REST API Routes ============
@@ -258,6 +259,8 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(4000, () => {
-  console.log('Server is online, listening on port 4000');
+const PORT = process.env.PORT || 4000;
+
+server.listen(PORT, () => {
+  console.log(`Server is online, listening on port ${PORT}`);
 });
