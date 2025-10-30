@@ -4,7 +4,7 @@ echo ODL Monitor Client - Portable EXE Build
 echo ========================================
 echo.
 echo Building portable executable for production...
-echo Server URL: https://monitor-pi-three.vercel.app
+echo Server URL: https://monitor-d0dx.onrender.com
 echo.
 
 echo Step 1: Stopping any running ODL Monitor processes...
@@ -41,7 +41,7 @@ if exist dist\ODL-Monitor-Client-Portable.exe (
     echo This single .exe file can be distributed to users.
     echo No installation required - just run it!
     echo.
-    echo Server: https://monitor-pi-three.vercel.app
+    echo Server: https://monitor-d0dx.onrender.com
     echo Dashboard: https://monitor-3q1t.vercel.app
     echo.
 ) else (

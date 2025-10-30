@@ -4,7 +4,7 @@ echo ODL Monitor - Update Server URL
 echo ===============================================
 echo.
 
-set /p SERVER_URL="https://monitor-pi-three.vercel.app"
+set /p SERVER_URL="https://monitor-d0dx.onrender.com"
 
 if "%SERVER_URL%"=="" (
     echo Error: Server URL cannot be empty

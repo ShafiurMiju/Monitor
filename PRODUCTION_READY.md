@@ -3,7 +3,7 @@
 ## ✅ Deployment Status
 
 ### Backend Server
-- **URL:** https://monitor-pi-three.vercel.app
+- **URL:** https://monitor-d0dx.onrender.com
 - **Status:** ✅ Live
 - **Platform:** Vercel
 
@@ -34,7 +34,7 @@ ODL Monitor Client.exe
 ```
 
 ### Configuration
-- **Backend API:** https://monitor-pi-three.vercel.app
+- **Backend API:** https://monitor-d0dx.onrender.com
 - **Connection:** WebSocket + REST API
 - **Auto-configured:** Yes (production config applied)
 
@@ -157,7 +157,7 @@ Visit: https://monitor-3q1t.vercel.app
 
 ### Cannot Connect to Server
 - **Check:** Internet connection
-- **Verify:** Can access https://monitor-pi-three.vercel.app in browser
+- **Verify:** Can access https://monitor-d0dx.onrender.com in browser
 - **Firewall:** Allow ODL Monitor Client through Windows Firewall
 - **Ports:** Ensure WebSocket connections (port 443) are allowed
 
@@ -227,15 +227,15 @@ Package Type:   Unpacked Directory
 - Dashboard: https://monitor-3q1t.vercel.app
 
 ### For Admins
-- Backend API: https://monitor-pi-three.vercel.app
-- API Health Check: https://monitor-pi-three.vercel.app/api/health
+- Backend API: https://monitor-d0dx.onrender.com
+- API Health Check: https://monitor-d0dx.onrender.com/api/health
 - Repository: Monitor (ShafiurMiju/Monitor)
 
 ---
 
 ## ✨ Quick Start Summary
 
-1. ✅ **Backend is live:** https://monitor-pi-three.vercel.app
+1. ✅ **Backend is live:** https://monitor-d0dx.onrender.com
 2. ✅ **Dashboard is live:** https://monitor-3q1t.vercel.app
 3. ✅ **Client app is built:** `dist\win-unpacked\ODL Monitor Client.exe`
 4. 📦 **Distribute:** Share the `win-unpacked` folder

@@ -10,7 +10,7 @@ Your production client application is ready to use and distribute.
 **Main Executable:** `ODL Monitor Client.exe` (200.75 MB)
 
 ### 🌐 Server Configuration
-- **Backend API:** https://monitor-pi-three.vercel.app
+- **Backend API:** https://monitor-d0dx.onrender.com
 - **Admin Dashboard:** https://monitor-3q1t.vercel.app
 
 ### 📦 Distribution Options
@@ -52,7 +52,7 @@ Your production client application is ready to use and distribute.
 - Screen capture permissions
 
 ### 🔒 Security Notes
-- Application connects to: https://monitor-pi-three.vercel.app
+- Application connects to: https://monitor-d0dx.onrender.com
 - Screen data transmitted via secure WebSocket connection
 - Each client identified by unique MAC address
 - Monitoring only active when user clicks "Start Monitoring"
@@ -67,7 +67,7 @@ Your production client application is ready to use and distribute.
 **Connection issues:**
 - Verify internet connection
 - Check firewall settings
-- Ensure server URL is accessible: https://monitor-pi-three.vercel.app
+- Ensure server URL is accessible: https://monitor-d0dx.onrender.com
 
 **Login failed:**
 - Verify credentials with administrator
@@ -97,7 +97,7 @@ Compress-Archive -Path "win-unpacked\*" -DestinationPath "ODL-Monitor-Client-Pro
 ```
 
 ### 📤 Deployment Checklist
-- [x] Backend server deployed: https://monitor-pi-three.vercel.app
+- [x] Backend server deployed: https://monitor-d0dx.onrender.com
 - [x] Admin dashboard deployed: https://monitor-3q1t.vercel.app
 - [x] Client application built with production config
 - [x] Executable tested locally

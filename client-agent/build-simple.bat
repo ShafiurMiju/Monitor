@@ -4,7 +4,7 @@ echo ODL Monitor Client - Production Build
 echo ========================================
 echo.
 echo Building for production server...
-echo Backend: https://monitor-pi-three.vercel.app
+echo Backend: https://monitor-d0dx.onrender.com
 echo Frontend: https://monitor-3q1t.vercel.app
 echo.
 
@@ -45,7 +45,7 @@ if exist "dist\win-unpacked\ODL Monitor Client.exe" (
     echo 2. Users extract and run "ODL Monitor Client.exe"
     echo.
     echo Server configuration:
-    echo - Backend: https://monitor-pi-three.vercel.app
+    echo - Backend: https://monitor-d0dx.onrender.com
     echo - Dashboard: https://monitor-3q1t.vercel.app
     echo.
 ) else (
