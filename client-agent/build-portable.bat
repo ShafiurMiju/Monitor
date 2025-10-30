@@ -42,7 +42,7 @@ if exist dist\ODL-Monitor-Client-Portable.exe (
     echo No installation required - just run it!
     echo.
     echo Server: https://monitor-d0dx.onrender.com
-    echo Dashboard: https://monitor-3q1t.vercel.app
+    echo Dashboard: https://monitor-client-gsbf.onrender.com
     echo.
 ) else (
     echo ========================================

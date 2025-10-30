@@ -5,7 +5,7 @@ echo ========================================
 echo.
 echo Building for production server...
 echo Backend: https://monitor-d0dx.onrender.com
-echo Frontend: https://monitor-3q1t.vercel.app
+echo Frontend: https://monitor-client-gsbf.onrender.com
 echo.
 
 echo Step 1: Applying production config...
@@ -46,7 +46,7 @@ if exist "dist\win-unpacked\ODL Monitor Client.exe" (
     echo.
     echo Server configuration:
     echo - Backend: https://monitor-d0dx.onrender.com
-    echo - Dashboard: https://monitor-3q1t.vercel.app
+    echo - Dashboard: https://monitor-client-gsbf.onrender.com
     echo.
 ) else (
     echo ========================================

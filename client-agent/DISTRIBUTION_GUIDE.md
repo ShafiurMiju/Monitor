@@ -11,7 +11,7 @@ Your production client application is ready to use and distribute.
 
 ### 🌐 Server Configuration
 - **Backend API:** https://monitor-d0dx.onrender.com
-- **Admin Dashboard:** https://monitor-3q1t.vercel.app
+- **Admin Dashboard:** https://monitor-client-gsbf.onrender.com
 
 ### 📦 Distribution Options
 
@@ -98,7 +98,7 @@ Compress-Archive -Path "win-unpacked\*" -DestinationPath "ODL-Monitor-Client-Pro
 
 ### 📤 Deployment Checklist
 - [x] Backend server deployed: https://monitor-d0dx.onrender.com
-- [x] Admin dashboard deployed: https://monitor-3q1t.vercel.app
+- [x] Admin dashboard deployed: https://monitor-client-gsbf.onrender.com
 - [x] Client application built with production config
 - [x] Executable tested locally
 - [ ] Create distribution ZIP

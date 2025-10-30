@@ -8,7 +8,7 @@
 - **Platform:** Vercel
 
 ### Admin Dashboard
-- **URL:** https://monitor-3q1t.vercel.app
+- **URL:** https://monitor-client-gsbf.onrender.com
 - **Status:** ✅ Live
 - **Platform:** Vercel
 
@@ -95,7 +95,7 @@ ODL Monitor Client.exe
 ## 🔧 Admin Dashboard Usage
 
 ### Access
-Visit: https://monitor-3q1t.vercel.app
+Visit: https://monitor-client-gsbf.onrender.com
 
 ### Login
 - Username: admin
@@ -224,7 +224,7 @@ Package Type:   Unpacked Directory
 
 ### For Users
 - Contact your system administrator
-- Dashboard: https://monitor-3q1t.vercel.app
+- Dashboard: https://monitor-client-gsbf.onrender.com
 
 ### For Admins
 - Backend API: https://monitor-d0dx.onrender.com
@@ -236,7 +236,7 @@ Package Type:   Unpacked Directory
 ## ✨ Quick Start Summary
 
 1. ✅ **Backend is live:** https://monitor-d0dx.onrender.com
-2. ✅ **Dashboard is live:** https://monitor-3q1t.vercel.app
+2. ✅ **Dashboard is live:** https://monitor-client-gsbf.onrender.com
 3. ✅ **Client app is built:** `dist\win-unpacked\ODL Monitor Client.exe`
 4. 📦 **Distribute:** Share the `win-unpacked` folder
 5. 👥 **Users:** Run the .exe → Sign up/Login → Start Monitoring
