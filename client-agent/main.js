@@ -94,32 +94,46 @@ ipcMain.handle('start-monitoring', async (event) => {
       socket = io(SERVER_URL);
 
       socket.on('connect', () => {
-        console.log("Agent has connected to the server!");
+        console.log("✅ Agent has connected to the server!");
+        console.log(`📡 Registering with MAC address: ${currentUser.macAddress}`);
         socket.emit('register', { macAddress: currentUser.macAddress });
       });
 
       socket.on('start_stream', (data) => {
-        console.log('Server requested stream for admin:', data.adminId);
+        console.log('🎥 Server requested stream for admin:', data.adminId);
         
-        if (streamingInterval) clearInterval(streamingInterval);
+        if (streamingInterval) {
+          console.log('Clearing existing streaming interval...');
+          clearInterval(streamingInterval);
+        }
         
+        console.log('Starting screen capture interval...');
         streamingInterval = setInterval(async () => {
           try {
             const imgBuffer = await screenshot({ format: 'jpeg' });
             const base64Image = imgBuffer.toString('base64');
+            console.log(`📸 Captured and sending frame (${base64Image.length} bytes) to admin: ${data.adminId}`);
             socket.emit('stream_data', { image: base64Image, adminId: data.adminId });
           } catch (error) {
-            console.error("Failed to capture screen:", error);
+            console.error("❌ Failed to capture screen:", error);
           }
         }, 1000);
       });
 
       socket.on('stop_stream', () => {
-        console.log('Server requested to stop stream.');
+        console.log('🛑 Server requested to stop stream.');
         if (streamingInterval) {
           clearInterval(streamingInterval);
           streamingInterval = null;
         }
+      });
+
+      socket.on('disconnect', () => {
+        console.log('❌ Disconnected from server');
+      });
+
+      socket.on('error', (error) => {
+        console.error('❌ Socket error:', error);
       });
     }
 

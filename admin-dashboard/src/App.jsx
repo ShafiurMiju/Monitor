@@ -5,7 +5,26 @@ import axios from 'axios';
 import './App.css';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
-const socket = io(SERVER_URL); // Connect to our server
+
+console.log('🌐 Connecting to server:', SERVER_URL);
+const socket = io(SERVER_URL, {
+  transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+}); // Connect to our server
+
+socket.on('connect', () => {
+  console.log('✅ Admin dashboard connected to server, Socket ID:', socket.id);
+});
+
+socket.on('disconnect', () => {
+  console.log('❌ Admin dashboard disconnected from server');
+});
+
+socket.on('connect_error', (error) => {
+  console.error('❌ Connection error:', error.message);
+});
 
 function App() {
   const [users, setUsers] = useState([]);
@@ -38,6 +57,7 @@ function App() {
 
     // Listen for the 'new_frame' event from the server
     socket.on('new_frame', (data) => {
+      console.log(`📸 Received frame from server (${data.image.length} bytes)`);
       setLiveImage(`data:image/jpeg;base64,${data.image}`);
     });
 
@@ -69,7 +89,8 @@ function App() {
     setSelectedUser(user);
     setIsStreaming(true);
     setLiveImage('');
-    console.log(`Requesting stream for: ${user.macAddress}`);
+    console.log(`Admin requesting stream for MAC: ${user.macAddress}`);
+    console.log(`Socket connected: ${socket.connected}`);
     socket.emit('request_stream', { targetMacAddress: user.macAddress });
   };
 

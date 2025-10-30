@@ -233,9 +233,12 @@ io.on('connection', (socket) => {
 
   // When an admin wants to see a screen
   socket.on('request_stream', (data) => {
-    console.log(`Admin requested stream for MAC: ${data.targetMacAddress}`);
+    console.log(`Admin (${socket.id}) requested stream for MAC: ${data.targetMacAddress}`);
+    console.log(`Connected clients:`, Array.from(connectedClients.keys()));
+    
     const targetSocketId = connectedClients.get(data.targetMacAddress);
     if (targetSocketId) {
+      console.log(`Found target socket ID: ${targetSocketId}, sending start_stream command...`);
       // Send a 'start_stream' command ONLY to that specific user's PC
       io.to(targetSocketId).emit('start_stream', { adminId: socket.id });
     } else {
@@ -246,6 +249,7 @@ io.on('connection', (socket) => {
 
   // When the client agent sends an image, we forward it to the admin
   socket.on('stream_data', (data) => {
+    console.log(`📸 Received frame from client (${data.image.length} bytes), forwarding to admin: ${data.adminId}`);
     io.to(data.adminId).emit('new_frame', { image: data.image });
   });
 

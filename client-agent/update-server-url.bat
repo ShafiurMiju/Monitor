@@ -4,7 +4,7 @@ echo ODL Monitor - Update Server URL
 echo ===============================================
 echo.
 
-set /p SERVER_URL="Enter your Vercel server URL (e.g., https://your-app.vercel.app): "
+set /p SERVER_URL="https://monitor-pi-three.vercel.app"
 
 if "%SERVER_URL%"=="" (
     echo Error: Server URL cannot be empty
