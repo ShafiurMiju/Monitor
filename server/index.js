@@ -28,6 +28,24 @@ const connectedClients = new Map(); // Stores MAC address and socket ID
 
 // ============ REST API Routes ============
 
+// Root Route - Server Status
+app.get('/', (req, res) => {
+  res.json({
+    status: 'running',
+    message: 'ODL Monitor Server is running successfully! 🚀',
+    timestamp: new Date().toISOString(),
+    port: PORT,
+    endpoints: {
+      signup: '/api/signup',
+      login: '/api/login',
+      users: '/api/users',
+      userById: '/api/users/:id'
+    },
+    socketIO: 'enabled',
+    version: '1.0.0'
+  });
+});
+
 // Signup Route
 app.post('/api/signup', async (req, res) => {
   try {
