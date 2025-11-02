@@ -58,7 +58,7 @@ npm install
 ```bash
 cd server
 node index.js
-# Server runs on http://localhost:4000
+# Server runs on https://monitor-d0dx.onrender.com
 ```
 
 3. **Start the Admin Dashboard**
@@ -130,7 +130,7 @@ mongodb+srv://odl:odl%402025@cluster0.vb0ajdn.mongodb.net/odl-monitor
 ## 🔧 Configuration
 
 ### Server URL
-Default: `http://localhost:4000`
+Default: `https://monitor-d0dx.onrender.com`
 
 Update in:
 - `client-agent/main.js` (line ~8)

@@ -4,7 +4,7 @@ import { io } from "socket.io-client";
 import axios from 'axios';
 import './App.css';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "https://monitor-d0dx.onrender.com";
 
 console.log('🌐 Connecting to server:', SERVER_URL);
 const socket = io(SERVER_URL, {
@@ -64,7 +64,10 @@ function App() {
     // Listen for stream errors
     socket.on('stream_error', (data) => {
       alert(data.message);
-      stopMonitoring();
+      socket.emit('admin_stop_stream');
+      setIsStreaming(false);
+      setSelectedUser(null);
+      setLiveImage('');
     });
 
     // Clean up listeners when component unmounts
@@ -86,6 +89,10 @@ function App() {
       return;
     }
 
+    if (isStreaming && selectedUser && selectedUser.macAddress !== user.macAddress) {
+      socket.emit('admin_stop_stream');
+    }
+
     setSelectedUser(user);
     setIsStreaming(true);
     setLiveImage('');
@@ -95,6 +102,10 @@ function App() {
   };
 
   const stopMonitoring = () => {
+    if (isStreaming && selectedUser) {
+      socket.emit('admin_stop_stream');
+    }
+
     setIsStreaming(false);
     setSelectedUser(null);
     setLiveImage('');
@@ -149,7 +160,7 @@ function App() {
                       !user.isOnline || !user.isStreaming ? 'disabled' : ''
                     }`}
                     onClick={() => startMonitoring(user)}
-                    disabled={!user.isOnline || !user.isStreaming || isStreaming}
+                    disabled={!user.isOnline || !user.isStreaming}
                   >
                     {isStreaming && selectedUser?._id === user._id 
                       ? '📺 Viewing' 

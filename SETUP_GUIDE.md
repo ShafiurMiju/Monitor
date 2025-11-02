@@ -23,7 +23,7 @@ cd server
 npm install
 node index.js
 ```
-The server will run on `http://localhost:4000`
+The server will run on `https://monitor-d0dx.onrender.com`
 
 ### 2. Admin Dashboard Setup
 ```bash
@@ -171,7 +171,7 @@ mongodb+srv://odl:odl@2025@cluster0.vb0ajdn.mongodb.net/odl-monitor
 ```
 
 ### Server URL
-- Server: `http://localhost:4000`
+- Server: `https://monitor-d0dx.onrender.com`
 - Update in both `client-agent/main.js` and `admin-dashboard/src/App.jsx` if needed
 
 ### JWT Secret

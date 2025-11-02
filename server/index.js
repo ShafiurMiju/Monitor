@@ -25,6 +25,7 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const connectedClients = new Map(); // Stores MAC address and socket ID
+const adminViewingTargets = new Map(); // Stores admin socket ID and the MAC they are viewing
 
 // ============ REST API Routes ============
 
@@ -235,16 +236,41 @@ io.on('connection', (socket) => {
   socket.on('request_stream', (data) => {
     console.log(`Admin (${socket.id}) requested stream for MAC: ${data.targetMacAddress}`);
     console.log(`Connected clients:`, Array.from(connectedClients.keys()));
+    const previousTargetMac = adminViewingTargets.get(socket.id);
+
+    if (previousTargetMac && previousTargetMac !== data.targetMacAddress) {
+      const previousSocketId = connectedClients.get(previousTargetMac);
+      if (previousSocketId) {
+        console.log(`Stopping previous stream from MAC: ${previousTargetMac} for admin: ${socket.id}`);
+        io.to(previousSocketId).emit('stop_stream', { adminId: socket.id });
+      }
+    }
     
     const targetSocketId = connectedClients.get(data.targetMacAddress);
     if (targetSocketId) {
       console.log(`Found target socket ID: ${targetSocketId}, sending start_stream command...`);
       // Send a 'start_stream' command ONLY to that specific user's PC
       io.to(targetSocketId).emit('start_stream', { adminId: socket.id });
+      adminViewingTargets.set(socket.id, data.targetMacAddress);
     } else {
       console.log(`Could not find a client with MAC: ${data.targetMacAddress}`);
       socket.emit('stream_error', { message: 'User is not online or not streaming' });
     }
+  });
+
+  socket.on('admin_stop_stream', () => {
+    const targetMac = adminViewingTargets.get(socket.id);
+    if (!targetMac) {
+      return;
+    }
+
+    const targetSocketId = connectedClients.get(targetMac);
+    if (targetSocketId) {
+      console.log(`Admin (${socket.id}) requested to stop stream for MAC: ${targetMac}`);
+      io.to(targetSocketId).emit('stop_stream', { adminId: socket.id });
+    }
+
+    adminViewingTargets.delete(socket.id);
   });
 
   // When the client agent sends an image, we forward it to the admin
@@ -256,6 +282,16 @@ io.on('connection', (socket) => {
   // Handle disconnections
   socket.on('disconnect', async () => {
     console.log('User disconnected:', socket.id);
+
+    const viewingTarget = adminViewingTargets.get(socket.id);
+    if (viewingTarget) {
+      const viewingSocketId = connectedClients.get(viewingTarget);
+      if (viewingSocketId) {
+        console.log(`Stopping stream from MAC: ${viewingTarget} due to admin disconnect: ${socket.id}`);
+        io.to(viewingSocketId).emit('stop_stream', { adminId: socket.id });
+      }
+      adminViewingTargets.delete(socket.id);
+    }
     
     // Clean up the connectedClients map and update database
     for (let [mac, id] of connectedClients.entries()) {
