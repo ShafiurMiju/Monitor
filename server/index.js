@@ -5,6 +5,7 @@ const http = require('http');
 const { Server } = require("socket.io");
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const connectDB = require('./config/database');
 const User = require('./models/User');
 
@@ -34,6 +35,18 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Middleware to check database connection
+app.use((req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    console.error('❌ Database not connected. ReadyState:', mongoose.connection.readyState);
+    return res.status(503).json({ 
+      success: false, 
+      message: 'Database connection unavailable. Please try again later.' 
+    });
+  }
+  next();
+});
+
 const JWT_SECRET = process.env.JWT_SECRET || 'ODL-MONITOR';
 const connectedClients = new Map(); 
 const adminViewingTargets = new Map();
@@ -59,7 +72,30 @@ app.get('/', (req, res) => {
 // Signup Route
 app.post('/api/signup', async (req, res) => {
   try {
+    console.log('📝 Signup request received:', { 
+      body: { ...req.body, password: req.body.password ? '***' : undefined }
+    });
+
     const { username, email, password, deviceId, computerName } = req.body;
+
+    // Validate required fields
+    if (!username || !email || !password || !deviceId) {
+      console.error('❌ Missing required fields:', { username: !!username, email: !!email, password: !!password, deviceId: !!deviceId });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'All fields (username, email, password, deviceId) are required' 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      console.error('❌ Invalid email format:', email);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid email format' 
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({ 
@@ -67,9 +103,12 @@ app.post('/api/signup', async (req, res) => {
     });
 
     if (existingUser) {
+      const conflictField = existingUser.email === email ? 'email' : 
+                           existingUser.username === username ? 'username' : 'device';
+      console.error('❌ User already exists with this', conflictField);
       return res.status(400).json({ 
         success: false, 
-        message: 'User with this email, username, or device already exists' 
+        message: `User with this ${conflictField} already exists` 
       });
     }
 
@@ -81,6 +120,8 @@ app.post('/api/signup', async (req, res) => {
       deviceId,
       computerName: computerName || 'Unknown'
     });
+
+    console.log('✅ User created successfully:', user._id);
 
     // Generate JWT token
     const token = jwt.sign({ id: user._id, deviceId: user.deviceId }, JWT_SECRET, {
@@ -100,20 +141,58 @@ app.post('/api/signup', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Signup error:', error);
-    res.status(500).json({ success: false, message: 'Server error during signup' });
+    console.error('❌ Signup error:', error.message);
+    console.error('Stack:', error.stack);
+    
+    // Handle specific MongoDB errors
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation error: ' + Object.values(error.errors).map(e => e.message).join(', ')
+      });
+    }
+    
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ 
+        success: false, 
+        message: `This ${field} is already registered` 
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during signup', 
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+    });
   }
 });
 
 // Login Route
 app.post('/api/login', async (req, res) => {
   try {
+    console.log('🔐 Login request received:', { 
+      email: req.body.email, 
+      deviceId: req.body.deviceId,
+      hasPassword: !!req.body.password 
+    });
+
     const { email, password, deviceId } = req.body;
+
+    // Validate required fields
+    if (!email || !password || !deviceId) {
+      console.error('❌ Missing required fields');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email, password, and device ID are required' 
+      });
+    }
 
     // Find user by email
     const user = await User.findOne({ email });
 
     if (!user) {
+      console.error('❌ User not found:', email);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
@@ -121,16 +200,20 @@ app.post('/api/login', async (req, res) => {
     const isPasswordMatch = await user.comparePassword(password);
 
     if (!isPasswordMatch) {
+      console.error('❌ Password mismatch for user:', email);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     // Verify device ID matches
     if (user.deviceId !== deviceId) {
+      console.error('❌ Device ID mismatch. Expected:', user.deviceId, 'Got:', deviceId);
       return res.status(403).json({ 
         success: false, 
         message: 'This account is registered with a different device' 
       });
     }
+
+    console.log('✅ Login successful for user:', user.username);
 
     // Generate JWT token
     const token = jwt.sign({ id: user._id, deviceId: user.deviceId }, JWT_SECRET, {
@@ -150,8 +233,13 @@ app.post('/api/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ success: false, message: 'Server error during login' });
+    console.error('❌ Login error:', error.message);
+    console.error('Stack:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during login',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
