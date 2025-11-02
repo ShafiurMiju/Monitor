@@ -4,9 +4,11 @@
   "description": "ODL Monitor Client Agent",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "electron . --env=development",
+    "start:prod": "electron . --env=production",
     "build": "electron-builder",
     "build:win": "electron-builder --win --x64",
+    "build:win:prod": "cross-env NODE_ENV=production electron-builder --win --x64",
     "build:dir": "electron-builder --dir"
   },
   "keywords": [],
@@ -37,11 +39,12 @@
   },
   "dependencies": {
     "axios": "^1.13.1",
-    "macaddress": "^0.5.3",
+    "node-machine-id": "^1.1.12",
     "screenshot-desktop": "^1.15.3",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "cross-env": "^7.0.3",
     "electron": "^39.0.0",
     "electron-builder": "^25.1.8"
   }

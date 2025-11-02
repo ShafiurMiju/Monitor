@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  macAddress: {
+  deviceId: {
     type: String,
     required: true,
     unique: true

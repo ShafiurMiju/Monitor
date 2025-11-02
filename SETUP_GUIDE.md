@@ -23,7 +23,7 @@ cd server
 npm install
 node index.js
 ```
-The server will run on `https://monitor-d0dx.onrender.com`
+The server will run on `http://localhost:4000`
 
 ### 2. Admin Dashboard Setup
 ```bash
@@ -94,7 +94,7 @@ The Electron app will launch with login/signup interface.
 
 - Passwords are hashed using bcrypt before storage
 - JWT tokens for authentication
-- MAC address binding prevents account sharing across devices
+- Device binding prevents account sharing across machines
 - Users must explicitly start monitoring (opt-in)
 
 ## 🗄️ Database Schema
@@ -105,7 +105,7 @@ The Electron app will launch with login/signup interface.
   username: String,
   email: String,
   password: String (hashed),
-  macAddress: String (unique),
+   deviceId: String (unique),
   computerName: String,
   isOnline: Boolean,
   isStreaming: Boolean,
@@ -117,13 +117,13 @@ The Electron app will launch with login/signup interface.
 ## 🔄 Workflow
 
 1. **User Registration**
-   - User signs up → Server creates user with MAC address → Stored in MongoDB
+   - User signs up → Server records a device identifier → Stored in MongoDB
 
 2. **User Login**
-   - User logs in → Server verifies credentials + MAC address → Returns JWT token
+   - User logs in → Server verifies credentials + device identifier → Returns JWT token
 
 3. **Connection**
-   - Client connects to socket → Registers with MAC → Server updates `isOnline: true`
+   - Client connects to socket → Registers with device ID → Server updates `isOnline: true`
 
 4. **Start Monitoring**
    - User clicks "Start" → Client emits event → Server updates `isStreaming: true` → Admins notified
@@ -171,7 +171,7 @@ mongodb+srv://odl:odl@2025@cluster0.vb0ajdn.mongodb.net/odl-monitor
 ```
 
 ### Server URL
-- Server: `https://monitor-d0dx.onrender.com`
+- Server: `http://localhost:4000`
 - Update in both `client-agent/main.js` and `admin-dashboard/src/App.jsx` if needed
 
 ### JWT Secret

@@ -10,9 +10,17 @@ const User = require('./models/User');
 
 const app = express();
 const server = http.createServer(app);
+
+// Configure CORS based on environment
+const corsOrigin = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  : "*";
+
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allows connections from other local projects
+    origin: corsOrigin,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -20,14 +28,15 @@ const io = new Server(server, {
 connectDB();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: corsOrigin,
+  credentials: true
+}));
 app.use(express.json());
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const connectedClients = new Map(); // Stores MAC address and socket ID
-const adminViewingTargets = new Map(); // Stores admin socket ID and the MAC they are viewing
-
-// ============ REST API Routes ============
+const JWT_SECRET = process.env.JWT_SECRET || 'ODL-MONITOR';
+const connectedClients = new Map(); 
+const adminViewingTargets = new Map();
 
 // Root Route - Server Status
 app.get('/', (req, res) => {
@@ -50,17 +59,17 @@ app.get('/', (req, res) => {
 // Signup Route
 app.post('/api/signup', async (req, res) => {
   try {
-    const { username, email, password, macAddress, computerName } = req.body;
+    const { username, email, password, deviceId, computerName } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }, { macAddress }] 
+      $or: [{ email }, { username }, { deviceId }] 
     });
 
     if (existingUser) {
       return res.status(400).json({ 
         success: false, 
-        message: 'User with this email, username, or MAC address already exists' 
+        message: 'User with this email, username, or device already exists' 
       });
     }
 
@@ -69,12 +78,12 @@ app.post('/api/signup', async (req, res) => {
       username,
       email,
       password,
-      macAddress,
+      deviceId,
       computerName: computerName || 'Unknown'
     });
 
     // Generate JWT token
-    const token = jwt.sign({ id: user._id, macAddress: user.macAddress }, JWT_SECRET, {
+    const token = jwt.sign({ id: user._id, deviceId: user.deviceId }, JWT_SECRET, {
       expiresIn: '30d'
     });
 
@@ -86,7 +95,7 @@ app.post('/api/signup', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        macAddress: user.macAddress,
+        deviceId: user.deviceId,
         computerName: user.computerName
       }
     });
@@ -99,7 +108,7 @@ app.post('/api/signup', async (req, res) => {
 // Login Route
 app.post('/api/login', async (req, res) => {
   try {
-    const { email, password, macAddress } = req.body;
+    const { email, password, deviceId } = req.body;
 
     // Find user by email
     const user = await User.findOne({ email });
@@ -115,8 +124,8 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // Verify MAC address matches
-    if (user.macAddress !== macAddress) {
+    // Verify device ID matches
+    if (user.deviceId !== deviceId) {
       return res.status(403).json({ 
         success: false, 
         message: 'This account is registered with a different device' 
@@ -124,7 +133,7 @@ app.post('/api/login', async (req, res) => {
     }
 
     // Generate JWT token
-    const token = jwt.sign({ id: user._id, macAddress: user.macAddress }, JWT_SECRET, {
+    const token = jwt.sign({ id: user._id, deviceId: user.deviceId }, JWT_SECRET, {
       expiresIn: '30d'
     });
 
@@ -136,7 +145,7 @@ app.post('/api/login', async (req, res) => {
         id: user._id,
         username: user.username,
         email: user.email,
-        macAddress: user.macAddress,
+        deviceId: user.deviceId,
         computerName: user.computerName
       }
     });
@@ -177,15 +186,15 @@ app.get('/api/users/:id', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('A user connected with ID:', socket.id);
 
-  // When a client agent checks in, we save its MAC address and update user status
+  // When a client agent checks in, we save its device ID and update user status
   socket.on('register', async (data) => {
     try {
-      console.log(`Agent registered with MAC address: ${data.macAddress}`);
-      connectedClients.set(data.macAddress, socket.id);
+      console.log(`Agent registered with device ID: ${data.deviceId}`);
+      connectedClients.set(data.deviceId, socket.id);
       
       // Update user online status in database
       await User.findOneAndUpdate(
-        { macAddress: data.macAddress },
+        { deviceId: data.deviceId },
         { isOnline: true, lastSeen: new Date() }
       );
       
@@ -199,11 +208,11 @@ io.on('connection', (socket) => {
   // When user clicks "Start" button - mark as streaming
   socket.on('start_monitoring', async (data) => {
     try {
-      console.log(`User started monitoring: ${data.macAddress}`);
+      console.log(`User started monitoring: ${data.deviceId}`);
       
       // Update streaming status in database
       await User.findOneAndUpdate(
-        { macAddress: data.macAddress },
+        { deviceId: data.deviceId },
         { isStreaming: true }
       );
       
@@ -217,11 +226,11 @@ io.on('connection', (socket) => {
   // When user stops monitoring
   socket.on('stop_monitoring', async (data) => {
     try {
-      console.log(`User stopped monitoring: ${data.macAddress}`);
+      console.log(`User stopped monitoring: ${data.deviceId}`);
       
       // Update streaming status in database
       await User.findOneAndUpdate(
-        { macAddress: data.macAddress },
+        { deviceId: data.deviceId },
         { isStreaming: false }
       );
       
@@ -233,40 +242,72 @@ io.on('connection', (socket) => {
   });
 
   // When an admin wants to see a screen
-  socket.on('request_stream', (data) => {
-    console.log(`Admin (${socket.id}) requested stream for MAC: ${data.targetMacAddress}`);
+  socket.on('request_stream', async (data) => {
+    console.log(`Admin (${socket.id}) requested stream for device: ${data.targetDeviceId}`);
     console.log(`Connected clients:`, Array.from(connectedClients.keys()));
-    const previousTargetMac = adminViewingTargets.get(socket.id);
+    const previousTargetDeviceId = adminViewingTargets.get(socket.id);
 
-    if (previousTargetMac && previousTargetMac !== data.targetMacAddress) {
-      const previousSocketId = connectedClients.get(previousTargetMac);
+    // Verify the target user is actually online and streaming
+    try {
+      const targetUser = await User.findOne({ deviceId: data.targetDeviceId });
+      if (!targetUser) {
+        console.log(`User with device ID ${data.targetDeviceId} not found in database`);
+        socket.emit('stream_error', { message: 'User not found' });
+        return;
+      }
+
+      if (!targetUser.isOnline) {
+        console.log(`User ${targetUser.username} is offline`);
+        socket.emit('stream_error', { message: 'User is offline' });
+        return;
+      }
+
+      if (!targetUser.isStreaming) {
+        console.log(`User ${targetUser.username} is not streaming`);
+        socket.emit('stream_error', { message: 'User has not enabled monitoring' });
+        return;
+      }
+    } catch (error) {
+      console.error('Error verifying user status:', error);
+      socket.emit('stream_error', { message: 'Failed to verify user status' });
+      return;
+    }
+
+    // Stop previous stream if switching to a different user
+    if (previousTargetDeviceId && previousTargetDeviceId !== data.targetDeviceId) {
+      const previousSocketId = connectedClients.get(previousTargetDeviceId);
       if (previousSocketId) {
-        console.log(`Stopping previous stream from MAC: ${previousTargetMac} for admin: ${socket.id}`);
+        console.log(`🔄 Switching: Stopping stream from device: ${previousTargetDeviceId}`);
         io.to(previousSocketId).emit('stop_stream', { adminId: socket.id });
+        // Small delay to ensure clean switch
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
     
-    const targetSocketId = connectedClients.get(data.targetMacAddress);
+    const targetSocketId = connectedClients.get(data.targetDeviceId);
     if (targetSocketId) {
-      console.log(`Found target socket ID: ${targetSocketId}, sending start_stream command...`);
+      console.log(`✅ Found target socket ID: ${targetSocketId}, initiating stream...`);
       // Send a 'start_stream' command ONLY to that specific user's PC
       io.to(targetSocketId).emit('start_stream', { adminId: socket.id });
-      adminViewingTargets.set(socket.id, data.targetMacAddress);
+      adminViewingTargets.set(socket.id, data.targetDeviceId);
+      
+      // Confirm stream switch to admin
+      socket.emit('stream_switched', { deviceId: data.targetDeviceId });
     } else {
-      console.log(`Could not find a client with MAC: ${data.targetMacAddress}`);
-      socket.emit('stream_error', { message: 'User is not online or not streaming' });
+      console.log(`❌ Could not find active socket for device ID: ${data.targetDeviceId}`);
+      socket.emit('stream_error', { message: 'User connection not found. Please refresh and try again.' });
     }
   });
 
   socket.on('admin_stop_stream', () => {
-    const targetMac = adminViewingTargets.get(socket.id);
-    if (!targetMac) {
+    const targetDeviceId = adminViewingTargets.get(socket.id);
+    if (!targetDeviceId) {
       return;
     }
 
-    const targetSocketId = connectedClients.get(targetMac);
+    const targetSocketId = connectedClients.get(targetDeviceId);
     if (targetSocketId) {
-      console.log(`Admin (${socket.id}) requested to stop stream for MAC: ${targetMac}`);
+      console.log(`Admin (${socket.id}) requested to stop stream for device: ${targetDeviceId}`);
       io.to(targetSocketId).emit('stop_stream', { adminId: socket.id });
     }
 
@@ -287,21 +328,21 @@ io.on('connection', (socket) => {
     if (viewingTarget) {
       const viewingSocketId = connectedClients.get(viewingTarget);
       if (viewingSocketId) {
-        console.log(`Stopping stream from MAC: ${viewingTarget} due to admin disconnect: ${socket.id}`);
+        console.log(`Stopping stream from device: ${viewingTarget} due to admin disconnect: ${socket.id}`);
         io.to(viewingSocketId).emit('stop_stream', { adminId: socket.id });
       }
       adminViewingTargets.delete(socket.id);
     }
     
     // Clean up the connectedClients map and update database
-    for (let [mac, id] of connectedClients.entries()) {
+    for (let [deviceId, id] of connectedClients.entries()) {
       if (id === socket.id) {
-        connectedClients.delete(mac);
+        connectedClients.delete(deviceId);
         
         try {
           // Update user offline status in database
           await User.findOneAndUpdate(
-            { macAddress: mac },
+            { deviceId },
             { isOnline: false, isStreaming: false, lastSeen: new Date() }
           );
           

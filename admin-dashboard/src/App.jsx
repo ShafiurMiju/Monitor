@@ -4,7 +4,7 @@ import { io } from "socket.io-client";
 import axios from 'axios';
 import './App.css';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "https://monitor-d0dx.onrender.com";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 
 console.log('🌐 Connecting to server:', SERVER_URL);
 const socket = io(SERVER_URL, {
@@ -32,6 +32,12 @@ function App() {
   const [liveImage, setLiveImage] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSwitching, setIsSwitching] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const streamContainerRef = React.useRef(null);
+  const frameCountRef = React.useRef(0);
+  const lastFrameTimeRef = React.useRef(null);
 
   // Fetch users from the server
   const fetchUsers = async () => {
@@ -59,6 +65,10 @@ function App() {
     socket.on('new_frame', (data) => {
       console.log(`📸 Received frame from server (${data.image.length} bytes)`);
       setLiveImage(`data:image/jpeg;base64,${data.image}`);
+      setConnectionStatus('streaming');
+      setIsSwitching(false);
+      frameCountRef.current += 1;
+      lastFrameTimeRef.current = Date.now();
     });
 
     // Listen for stream errors
@@ -68,6 +78,14 @@ function App() {
       setIsStreaming(false);
       setSelectedUser(null);
       setLiveImage('');
+      setConnectionStatus('error');
+      setIsSwitching(false);
+    });
+
+    // Listen for stream switch confirmation
+    socket.on('stream_switched', (data) => {
+      console.log(`🔄 Stream switched to device: ${data.deviceId}`);
+      setConnectionStatus('connecting');
     });
 
     // Clean up listeners when component unmounts
@@ -75,6 +93,7 @@ function App() {
       socket.off('user_status_changed');
       socket.off('new_frame');
       socket.off('stream_error');
+      socket.off('stream_switched');
     };
   }, []);
 
@@ -89,27 +108,93 @@ function App() {
       return;
     }
 
-    if (isStreaming && selectedUser && selectedUser.macAddress !== user.macAddress) {
+    // Check if already viewing this user
+    if (isStreaming && selectedUser && selectedUser.deviceId === user.deviceId) {
+      console.log('Already viewing this user');
+      return;
+    }
+
+    // Handle switching between users
+    if (isStreaming && selectedUser && selectedUser.deviceId !== user.deviceId) {
+      console.log(`🔄 Switching from ${selectedUser.username} to ${user.username}`);
+      setIsSwitching(true);
+      setConnectionStatus('switching');
       socket.emit('admin_stop_stream');
     }
 
     setSelectedUser(user);
     setIsStreaming(true);
     setLiveImage('');
-    console.log(`Admin requesting stream for MAC: ${user.macAddress}`);
+    setConnectionStatus('connecting');
+    frameCountRef.current = 0;
+    lastFrameTimeRef.current = null;
+    
+    console.log(`📡 Admin requesting stream for device: ${user.deviceId}`);
     console.log(`Socket connected: ${socket.connected}`);
-    socket.emit('request_stream', { targetMacAddress: user.macAddress });
+    socket.emit('request_stream', { targetDeviceId: user.deviceId });
   };
 
   const stopMonitoring = () => {
     if (isStreaming && selectedUser) {
+      console.log(`⏹️ Stopping stream for ${selectedUser.username}`);
       socket.emit('admin_stop_stream');
+    }
+
+    // Exit fullscreen if in fullscreen mode
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
     }
 
     setIsStreaming(false);
     setSelectedUser(null);
     setLiveImage('');
+    setConnectionStatus('idle');
+    setIsSwitching(false);
+    frameCountRef.current = 0;
+    lastFrameTimeRef.current = null;
   };
+
+  const toggleFullscreen = async () => {
+    if (!streamContainerRef.current) return;
+
+    try {
+      if (!document.fullscreenElement) {
+        await streamContainerRef.current.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (error) {
+      console.error('Error toggling fullscreen:', error);
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  // Keyboard shortcut for fullscreen (F key)
+  useEffect(() => {
+    const handleKeyPress = (e) => {
+      if (isStreaming && liveImage && (e.key === 'f' || e.key === 'F')) {
+        toggleFullscreen();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => {
+      window.removeEventListener('keydown', handleKeyPress);
+    };
+  }, [isStreaming, liveImage]);
 
   return (
     <div className="dashboard-container">
@@ -148,7 +233,7 @@ function App() {
                     </div>
                     <p className="user-detail">📧 {user.email}</p>
                     <p className="user-detail">💻 {user.computerName}</p>
-                    <p className="user-detail mac">🔗 {user.macAddress}</p>
+                    <p className="user-detail mac">🔗 {user.deviceId}</p>
                     {!user.isOnline && user.lastSeen && (
                       <p className="last-seen">
                         Last seen: {new Date(user.lastSeen).toLocaleString()}
@@ -176,34 +261,72 @@ function App() {
         <div className="stream-section">
           <div className="stream-header">
             <h2>Live Stream</h2>
-            {isStreaming && selectedUser && (
-              <button className="stop-stream-btn" onClick={stopMonitoring}>
-                ⏹️ Stop Viewing
-              </button>
-            )}
+            <div className="stream-controls">
+              {isStreaming && selectedUser && liveImage && (
+                <button className="fullscreen-btn" onClick={toggleFullscreen}>
+                  {isFullscreen ? '🗙 Exit Fullscreen' : '⛶ Fullscreen'}
+                </button>
+              )}
+              {isStreaming && selectedUser && (
+                <button className="stop-stream-btn" onClick={stopMonitoring}>
+                  ⏹️ Stop Viewing
+                </button>
+              )}
+            </div>
           </div>
           
-          <div className="stream-container">
+          <div className="stream-container" ref={streamContainerRef}>
             {!isStreaming ? (
               <div className="stream-placeholder">
                 <p>👆 Select an online user with streaming enabled to view their screen</p>
               </div>
             ) : liveImage ? (
-              <img 
-                src={liveImage} 
-                alt="Live Stream" 
-                className="live-stream-image"
-              />
+              <>
+                <img 
+                  src={liveImage} 
+                  alt="Live Stream" 
+                  className={`live-stream-image ${isSwitching ? 'switching' : ''}`}
+                />
+                {isSwitching && (
+                  <div className="switching-overlay">
+                    <div className="switching-spinner"></div>
+                    <p>🔄 Switching stream...</p>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="stream-loading">
-                <p>⏳ Connecting to stream...</p>
+                {connectionStatus === 'switching' ? (
+                  <>
+                    <div className="switching-spinner"></div>
+                    <p>🔄 Switching to {selectedUser?.username}...</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="loading-spinner"></div>
+                    <p>⏳ Connecting to {selectedUser?.username}...</p>
+                  </>
+                )}
               </div>
             )}
           </div>
 
           {selectedUser && isStreaming && (
             <div className="stream-info">
-              <p><strong>Viewing:</strong> {selectedUser.username} ({selectedUser.computerName})</p>
+              <p>
+                <strong>Viewing:</strong> {selectedUser.username} ({selectedUser.computerName})
+                {liveImage && (
+                  <span className="stream-stats">
+                    {' • '}
+                    <span className={`status-indicator ${connectionStatus === 'streaming' ? 'active' : ''}`}>
+                      ⚫
+                    </span>
+                    {' '}
+                    {connectionStatus === 'streaming' ? 'Live' : 'Connecting...'}
+                    {frameCountRef.current > 0 && ` • ${frameCountRef.current} frames`}
+                  </span>
+                )}
+              </p>
             </div>
           )}
         </div>
