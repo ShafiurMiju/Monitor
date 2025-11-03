@@ -172,6 +172,16 @@
       background: #ff9800;
       color: white;
     }
+
+    .status.disabled {
+      background: #f44336;
+      color: white;
+    }
+
+    .status.offline {
+      background: #9e9e9e;
+      color: white;
+    }
   </style>
 </head>
 <body>
@@ -226,14 +236,11 @@
       <div class="user-info">
         <p><strong>Username:</strong> <span id="userName"></span></p>
         <p><strong>Computer:</strong> <span id="computerName"></span></p>
-        <p><strong>Status:</strong> <span id="statusBadge" class="status stopped">Stopped</span></p>
+        <p><strong>Status:</strong> <span id="statusBadge" class="status monitoring">Online - Taking Screenshots</span></p>
       </div>
-      <button id="startBtn" class="success" onclick="startMonitoring()">
-        ▶️ Start Monitoring
-      </button>
-      <button id="stopBtn" class="danger hidden" onclick="stopMonitoring()">
-        ⏹️ Stop Monitoring
-      </button>
+      <p id="statusDescription" style="text-align: center; color: #666; font-size: 14px; margin: 15px 0;">
+        📸 Screenshots are being captured automatically while you're online
+      </p>
       <button class="secondary logout" onclick="logout()">
         🚪 Logout
       </button>
@@ -261,43 +268,62 @@
       document.getElementById('signupMessage').classList.add('hidden');
     }
 
-    function showDashboard(user) {
+    function updateStatusDisplay(statusData) {
+      const statusBadge = document.getElementById('statusBadge');
+      const statusDescription = document.getElementById('statusDescription');
+
+      if (!statusData.isOnline) {
+        statusBadge.textContent = 'Offline';
+        statusBadge.className = 'status offline';
+        statusDescription.textContent = '⚠️ Not connected to server';
+        return;
+      }
+
+      if (!statusData.screenshotEnabled) {
+        statusBadge.textContent = 'Online - Screenshots Disabled';
+        statusBadge.className = 'status disabled';
+        statusDescription.textContent = '🚫 Screenshot capture is disabled by admin';
+      } else {
+        const intervalSeconds = statusData.screenshotInterval / 1000;
+        statusBadge.textContent = `Online - Taking Screenshots`;
+        statusBadge.className = 'status monitoring';
+        statusDescription.textContent = `📸 Screenshots are being captured every ${intervalSeconds} seconds`;
+      }
+    }
+
+    async function showDashboard(user) {
       document.getElementById('loginForm').classList.add('hidden');
       document.getElementById('signupForm').classList.add('hidden');
       document.getElementById('dashboard').classList.remove('hidden');
       document.getElementById('userName').textContent = user.username;
       document.getElementById('computerName').textContent = user.computerName;
-    }
-
-    function logout() {
-      document.getElementById('dashboard').classList.add('hidden');
-      document.getElementById('loginForm').classList.remove('hidden');
-      document.getElementById('loginEmail').value = '';
-      document.getElementById('loginPassword').value = '';
-      clearMessages();
-    }
-
-    async function startMonitoring() {
-      const result = await ipcRenderer.invoke('start-monitoring');
-      if (result.success) {
-        document.getElementById('startBtn').classList.add('hidden');
-        document.getElementById('stopBtn').classList.remove('hidden');
-        document.getElementById('statusBadge').textContent = 'Monitoring';
-        document.getElementById('statusBadge').className = 'status monitoring';
-      } else {
-        alert('Failed to start monitoring: ' + result.message);
+      
+      // Get and display current status
+      const statusResult = await ipcRenderer.invoke('get-status');
+      if (statusResult.success) {
+        updateStatusDisplay(statusResult);
       }
     }
 
-    async function stopMonitoring() {
-      const result = await ipcRenderer.invoke('stop-monitoring');
+    // Listen for status updates from main process
+    ipcRenderer.on('status-update', (event, statusData) => {
+      updateStatusDisplay(statusData);
+    });
+
+    async function logout() {
+      // Call the logout handler
+      const result = await ipcRenderer.invoke('logout');
+      
       if (result.success) {
-        document.getElementById('stopBtn').classList.add('hidden');
-        document.getElementById('startBtn').classList.remove('hidden');
-        document.getElementById('statusBadge').textContent = 'Stopped';
-        document.getElementById('statusBadge').className = 'status stopped';
+        // Reset UI
+        document.getElementById('dashboard').classList.add('hidden');
+        document.getElementById('loginForm').classList.remove('hidden');
+        document.getElementById('loginEmail').value = '';
+        document.getElementById('loginPassword').value = '';
+        clearMessages();
+        showMessage('loginMessage', 'Logged out successfully', false);
       } else {
-        alert('Failed to stop monitoring: ' + result.message);
+        alert('Logout failed: ' + result.message);
       }
     }
 
@@ -311,7 +337,7 @@
       const result = await ipcRenderer.invoke('login', { email, password });
       
       if (result.success) {
-        showMessage('loginMessage', 'Login successful!', false);
+        showMessage('loginMessage', 'Login successful! You are now online.', false);
         setTimeout(() => showDashboard(result.user), 500);
       } else {
         showMessage('loginMessage', result.message, true);
@@ -329,7 +355,7 @@
       const result = await ipcRenderer.invoke('signup', { username, email, password });
       
       if (result.success) {
-        showMessage('signupMessage', 'Registration successful!', false);
+        showMessage('signupMessage', 'Registration successful! You are now online.', false);
         setTimeout(() => showDashboard(result.user), 500);
       } else {
         showMessage('signupMessage', result.message, true);

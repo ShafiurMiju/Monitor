@@ -3,10 +3,11 @@ import React, { useEffect, useState } from 'react';
 import { io } from "socket.io-client";
 import axios from 'axios';
 import './App.css';
+import Screenshots from './Screenshots';
+import Settings from './Settings';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 
-console.log('🌐 Connecting to server:', SERVER_URL);
 const socket = io(SERVER_URL, {
   transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
   reconnection: true,
@@ -15,15 +16,12 @@ const socket = io(SERVER_URL, {
 }); // Connect to our server
 
 socket.on('connect', () => {
-  console.log('✅ Admin dashboard connected to server, Socket ID:', socket.id);
 });
 
 socket.on('disconnect', () => {
-  console.log('❌ Admin dashboard disconnected from server');
 });
 
 socket.on('connect_error', (error) => {
-  console.error('❌ Connection error:', error.message);
 });
 
 function App() {
@@ -35,6 +33,8 @@ function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSwitching, setIsSwitching] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const [viewingScreenshots, setViewingScreenshots] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
   const streamContainerRef = React.useRef(null);
   const frameCountRef = React.useRef(0);
   const lastFrameTimeRef = React.useRef(null);
@@ -47,7 +47,6 @@ function App() {
         setUsers(response.data.users);
       }
     } catch (error) {
-      console.error('Error fetching users:', error);
     } finally {
       setLoading(false);
     }
@@ -63,7 +62,6 @@ function App() {
 
     // Listen for the 'new_frame' event from the server
     socket.on('new_frame', (data) => {
-      console.log(`📸 Received frame from server (${data.image.length} bytes)`);
       setLiveImage(`data:image/jpeg;base64,${data.image}`);
       setConnectionStatus('streaming');
       setIsSwitching(false);
@@ -84,7 +82,6 @@ function App() {
 
     // Listen for stream switch confirmation
     socket.on('stream_switched', (data) => {
-      console.log(`🔄 Stream switched to device: ${data.deviceId}`);
       setConnectionStatus('connecting');
     });
 
@@ -110,13 +107,11 @@ function App() {
 
     // Check if already viewing this user
     if (isStreaming && selectedUser && selectedUser.deviceId === user.deviceId) {
-      console.log('Already viewing this user');
       return;
     }
 
     // Handle switching between users
     if (isStreaming && selectedUser && selectedUser.deviceId !== user.deviceId) {
-      console.log(`🔄 Switching from ${selectedUser.username} to ${user.username}`);
       setIsSwitching(true);
       setConnectionStatus('switching');
       socket.emit('admin_stop_stream');
@@ -129,14 +124,11 @@ function App() {
     frameCountRef.current = 0;
     lastFrameTimeRef.current = null;
     
-    console.log(`📡 Admin requesting stream for device: ${user.deviceId}`);
-    console.log(`Socket connected: ${socket.connected}`);
     socket.emit('request_stream', { targetDeviceId: user.deviceId });
   };
 
   const stopMonitoring = () => {
     if (isStreaming && selectedUser) {
-      console.log(`⏹️ Stopping stream for ${selectedUser.username}`);
       socket.emit('admin_stop_stream');
     }
 
@@ -166,7 +158,6 @@ function App() {
         setIsFullscreen(false);
       }
     } catch (error) {
-      console.error('Error toggling fullscreen:', error);
     }
   };
 
@@ -200,6 +191,9 @@ function App() {
     <div className="dashboard-container">
       <header className="dashboard-header">
         <h1>🎯 ODL Monitor - Admin Dashboard</h1>
+        <button className="settings-btn" onClick={() => setShowSettings(true)}>
+          ⚙️ Settings
+        </button>
       </header>
 
       <div className="dashboard-content">
@@ -240,17 +234,25 @@ function App() {
                       </p>
                     )}
                   </div>
-                  <button 
-                    className={`stream-btn ${
-                      !user.isOnline || !user.isStreaming ? 'disabled' : ''
-                    }`}
-                    onClick={() => startMonitoring(user)}
-                    disabled={!user.isOnline || !user.isStreaming}
-                  >
-                    {isStreaming && selectedUser?._id === user._id 
-                      ? '📺 Viewing' 
-                      : '👁️ View Stream'}
-                  </button>
+                  <div className="user-actions">
+                    <button 
+                      className={`stream-btn ${
+                        !user.isOnline || !user.isStreaming ? 'disabled' : ''
+                      }`}
+                      onClick={() => startMonitoring(user)}
+                      disabled={!user.isOnline || !user.isStreaming}
+                    >
+                      {isStreaming && selectedUser?._id === user._id 
+                        ? '📺 Viewing' 
+                        : '👁️ View Stream'}
+                    </button>
+                    <button 
+                      className="screenshots-btn"
+                      onClick={() => setViewingScreenshots(user)}
+                    >
+                      📸 Screenshots
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -331,6 +333,21 @@ function App() {
           )}
         </div>
       </div>
+
+      {/* Screenshots Modal */}
+      {viewingScreenshots && (
+        <Screenshots 
+          user={viewingScreenshots} 
+          onClose={() => setViewingScreenshots(null)} 
+        />
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <Settings 
+          onClose={() => setShowSettings(false)} 
+        />
+      )}
     </div>
   );
 }
