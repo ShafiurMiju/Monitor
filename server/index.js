@@ -8,6 +8,9 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const connectDB = require('./config/database');
 const User = require('./models/User');
+const Screenshot = require('./models/Screenshot');
+const Settings = require('./models/Settings');
+const MouseTracking = require('./models/MouseTracking');
 
 const app = express();
 const server = http.createServer(app);
@@ -33,12 +36,12 @@ app.use(cors({
   origin: corsOrigin,
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Middleware to check database connection
 app.use((req, res, next) => {
   if (mongoose.connection.readyState !== 1) {
-    console.error('❌ Database not connected. ReadyState:', mongoose.connection.readyState);
     return res.status(503).json({ 
       success: false, 
       message: 'Database connection unavailable. Please try again later.' 
@@ -72,15 +75,10 @@ app.get('/', (req, res) => {
 // Signup Route
 app.post('/api/signup', async (req, res) => {
   try {
-    console.log('📝 Signup request received:', { 
-      body: { ...req.body, password: req.body.password ? '***' : undefined }
-    });
-
     const { username, email, password, deviceId, computerName } = req.body;
 
     // Validate required fields
     if (!username || !email || !password || !deviceId) {
-      console.error('❌ Missing required fields:', { username: !!username, email: !!email, password: !!password, deviceId: !!deviceId });
       return res.status(400).json({ 
         success: false, 
         message: 'All fields (username, email, password, deviceId) are required' 
@@ -90,7 +88,6 @@ app.post('/api/signup', async (req, res) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      console.error('❌ Invalid email format:', email);
       return res.status(400).json({ 
         success: false, 
         message: 'Invalid email format' 
@@ -105,7 +102,6 @@ app.post('/api/signup', async (req, res) => {
     if (existingUser) {
       const conflictField = existingUser.email === email ? 'email' : 
                            existingUser.username === username ? 'username' : 'device';
-      console.error('❌ User already exists with this', conflictField);
       return res.status(400).json({ 
         success: false, 
         message: `User with this ${conflictField} already exists` 
@@ -120,8 +116,6 @@ app.post('/api/signup', async (req, res) => {
       deviceId,
       computerName: computerName || 'Unknown'
     });
-
-    console.log('✅ User created successfully:', user._id);
 
     // Generate JWT token
     const token = jwt.sign({ id: user._id, deviceId: user.deviceId }, JWT_SECRET, {
@@ -141,9 +135,6 @@ app.post('/api/signup', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Signup error:', error.message);
-    console.error('Stack:', error.stack);
-    
     // Handle specific MongoDB errors
     if (error.name === 'ValidationError') {
       return res.status(400).json({ 
@@ -171,17 +162,10 @@ app.post('/api/signup', async (req, res) => {
 // Login Route
 app.post('/api/login', async (req, res) => {
   try {
-    console.log('🔐 Login request received:', { 
-      email: req.body.email, 
-      deviceId: req.body.deviceId,
-      hasPassword: !!req.body.password 
-    });
-
     const { email, password, deviceId } = req.body;
 
     // Validate required fields
     if (!email || !password || !deviceId) {
-      console.error('❌ Missing required fields');
       return res.status(400).json({ 
         success: false, 
         message: 'Email, password, and device ID are required' 
@@ -192,7 +176,6 @@ app.post('/api/login', async (req, res) => {
     const user = await User.findOne({ email });
 
     if (!user) {
-      console.error('❌ User not found:', email);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
@@ -200,20 +183,22 @@ app.post('/api/login', async (req, res) => {
     const isPasswordMatch = await user.comparePassword(password);
 
     if (!isPasswordMatch) {
-      console.error('❌ Password mismatch for user:', email);
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
     // Verify device ID matches
     if (user.deviceId !== deviceId) {
-      console.error('❌ Device ID mismatch. Expected:', user.deviceId, 'Got:', deviceId);
       return res.status(403).json({ 
         success: false, 
         message: 'This account is registered with a different device' 
       });
     }
 
-    console.log('✅ Login successful for user:', user.username);
+    // Set user as online immediately upon login
+    await User.findByIdAndUpdate(user._id, {
+      isOnline: true,
+      lastSeen: new Date()
+    });
 
     // Generate JWT token
     const token = jwt.sign({ id: user._id, deviceId: user.deviceId }, JWT_SECRET, {
@@ -233,11 +218,52 @@ app.post('/api/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Login error:', error.message);
-    console.error('Stack:', error.stack);
     res.status(500).json({ 
       success: false, 
       message: 'Server error during login',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Logout Route
+app.post('/api/logout', async (req, res) => {
+  try {
+    const { deviceId } = req.body;
+
+    if (!deviceId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Device ID is required' 
+      });
+    }
+
+    // Set user as offline
+    const user = await User.findOneAndUpdate(
+      { deviceId },
+      { 
+        isOnline: false, 
+        isStreaming: false,
+        lastSeen: new Date() 
+      },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during logout',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -249,7 +275,6 @@ app.get('/api/users', async (req, res) => {
     const users = await User.find({}, '-password').sort({ createdAt: -1 });
     res.status(200).json({ success: true, users });
   } catch (error) {
-    console.error('Error fetching users:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
@@ -263,8 +288,371 @@ app.get('/api/users/:id', async (req, res) => {
     }
     res.status(200).json({ success: true, user });
   } catch (error) {
-    console.error('Error fetching user:', error);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Upload screenshot
+app.post('/api/screenshots', async (req, res) => {
+  try {
+    const { userId, deviceId, username, imageData, computerName } = req.body;
+
+    if (!userId || !deviceId || !username || !imageData) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+    }
+
+    const screenshot = await Screenshot.create({
+      userId,
+      deviceId,
+      username,
+      imageData,
+      computerName: computerName || ''
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Screenshot saved successfully',
+      screenshot: {
+        id: screenshot._id,
+        timestamp: screenshot.timestamp
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to save screenshot' 
+    });
+  }
+});
+
+// Get screenshots for a specific user
+app.get('/api/screenshots/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 50, skip = 0 } = req.query;
+
+    const screenshots = await Screenshot.find({ userId })
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .select('-imageData'); // Don't send image data in list
+
+    const total = await Screenshot.countDocuments({ userId });
+
+    res.status(200).json({
+      success: true,
+      screenshots,
+      total,
+      hasMore: total > (parseInt(skip) + screenshots.length)
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch screenshots' 
+    });
+  }
+});
+
+// Get a specific screenshot with image data
+app.get('/api/screenshots/image/:screenshotId', async (req, res) => {
+  try {
+    const { screenshotId } = req.params;
+
+    const screenshot = await Screenshot.findById(screenshotId);
+
+    if (!screenshot) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Screenshot not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      screenshot
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch screenshot' 
+    });
+  }
+});
+
+// Delete old screenshots (cleanup endpoint - optional)
+app.delete('/api/screenshots/cleanup/:days', async (req, res) => {
+  try {
+    const { days } = req.params;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
+
+    const result = await Screenshot.deleteMany({
+      timestamp: { $lt: cutoffDate }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Deleted ${result.deletedCount} old screenshots`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to cleanup screenshots' 
+    });
+  }
+});
+
+// ============ Mouse Tracking API Endpoints ============
+
+// Save mouse tracking data
+app.post('/api/mouse-tracking', async (req, res) => {
+  try {
+    const { userId, deviceId, username, sessionId, movements, clicks, scrolls, screenResolution } = req.body;
+
+    if (!userId || !deviceId || !username || !sessionId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+    }
+
+    // Check if session already exists
+    let tracking = await MouseTracking.findOne({ sessionId });
+
+    if (tracking) {
+      // Update existing session
+      if (movements && movements.length > 0) {
+        tracking.movements.push(...movements);
+      }
+      if (clicks && clicks.length > 0) {
+        tracking.clicks.push(...clicks);
+      }
+      if (scrolls && scrolls.length > 0) {
+        tracking.scrolls.push(...scrolls);
+      }
+      tracking.endTime = new Date();
+      await tracking.save();
+    } else {
+      // Create new session
+      tracking = await MouseTracking.create({
+        userId,
+        deviceId,
+        username,
+        sessionId,
+        movements: movements || [],
+        clicks: clicks || [],
+        scrolls: scrolls || [],
+        screenResolution: screenResolution || { width: 1920, height: 1080 },
+        endTime: new Date()
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Mouse tracking data saved successfully'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to save mouse tracking data' 
+    });
+  }
+});
+
+// Get mouse tracking data for a specific user
+app.get('/api/mouse-tracking/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 10, skip = 0, sessionId } = req.query;
+
+    let query = { userId };
+    if (sessionId) {
+      query.sessionId = sessionId;
+    }
+
+    const trackingData = await MouseTracking.find(query)
+      .sort({ startTime: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+
+    const total = await MouseTracking.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      trackingData,
+      total,
+      hasMore: total > (parseInt(skip) + trackingData.length)
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch mouse tracking data' 
+    });
+  }
+});
+
+// Get specific session data
+app.get('/api/mouse-tracking/session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const tracking = await MouseTracking.findOne({ sessionId });
+
+    if (!tracking) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Session not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      tracking
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch session data' 
+    });
+  }
+});
+
+// Get aggregated statistics
+app.get('/api/mouse-tracking/:userId/stats', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    let query = { userId };
+    if (startDate || endDate) {
+      query.startTime = {};
+      if (startDate) query.startTime.$gte = new Date(startDate);
+      if (endDate) query.startTime.$lte = new Date(endDate);
+    }
+
+    const trackingData = await MouseTracking.find(query);
+
+    let totalMovements = 0;
+    let totalLeftClicks = 0;
+    let totalRightClicks = 0;
+    let totalMiddleClicks = 0;
+    let totalScrolls = 0;
+
+    trackingData.forEach(session => {
+      totalMovements += session.movements.length;
+      session.clicks.forEach(click => {
+        if (click.button === 'left') totalLeftClicks++;
+        else if (click.button === 'right') totalRightClicks++;
+        else if (click.button === 'middle') totalMiddleClicks++;
+      });
+      totalScrolls += session.scrolls.length;
+    });
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        totalSessions: trackingData.length,
+        totalMovements,
+        totalLeftClicks,
+        totalRightClicks,
+        totalMiddleClicks,
+        totalClicks: totalLeftClicks + totalRightClicks + totalMiddleClicks,
+        totalScrolls
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch statistics' 
+    });
+  }
+});
+
+// Delete old mouse tracking data (cleanup endpoint)
+app.delete('/api/mouse-tracking/cleanup/:days', async (req, res) => {
+  try {
+    const { days } = req.params;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
+
+    const result = await MouseTracking.deleteMany({
+      startTime: { $lt: cutoffDate }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Deleted ${result.deletedCount} old mouse tracking sessions`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to cleanup mouse tracking data' 
+    });
+  }
+});
+
+// ============ Settings API Endpoints ============
+
+// Get current settings
+app.get('/api/settings', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+    res.status(200).json({
+      success: true,
+      settings
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch settings' 
+    });
+  }
+});
+
+// Update settings
+app.put('/api/settings', async (req, res) => {
+  try {
+    const { screenshotEnabled, screenshotInterval, streamingEnabled } = req.body;
+    
+    const updates = {};
+    if (typeof screenshotEnabled === 'boolean') updates.screenshotEnabled = screenshotEnabled;
+    if (typeof screenshotInterval === 'number') {
+      // Validate interval (between 1 second and 1 hour)
+      if (screenshotInterval >= 1000 && screenshotInterval <= 3600000) {
+        updates.screenshotInterval = screenshotInterval;
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Screenshot interval must be between 1 second and 1 hour'
+        });
+      }
+    }
+    if (typeof streamingEnabled === 'boolean') updates.streamingEnabled = streamingEnabled;
+
+    const settings = await Settings.updateSettings(updates);
+    
+    // Notify all connected clients about settings change
+    io.emit('settings_updated', {
+      screenshotEnabled: settings.screenshotEnabled,
+      screenshotInterval: settings.screenshotInterval,
+      streamingEnabled: settings.streamingEnabled
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Settings updated successfully',
+      settings
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update settings' 
+    });
   }
 });
 
@@ -272,12 +660,9 @@ app.get('/api/users/:id', async (req, res) => {
 
 // This block runs every time a new user connects
 io.on('connection', (socket) => {
-  console.log('A user connected with ID:', socket.id);
-
   // When a client agent checks in, we save its device ID and update user status
   socket.on('register', async (data) => {
     try {
-      console.log(`Agent registered with device ID: ${data.deviceId}`);
       connectedClients.set(data.deviceId, socket.id);
       
       // Update user online status in database
@@ -286,18 +671,23 @@ io.on('connection', (socket) => {
         { isOnline: true, lastSeen: new Date() }
       );
       
+      // Send current settings to the newly connected client
+      const settings = await Settings.getSettings();
+      socket.emit('settings_updated', {
+        screenshotEnabled: settings.screenshotEnabled,
+        screenshotInterval: settings.screenshotInterval,
+        streamingEnabled: settings.streamingEnabled
+      });
+      
       // Notify all admins that user list has changed
       io.emit('user_status_changed');
     } catch (error) {
-      console.error('Error updating user status:', error);
     }
   });
 
   // When user clicks "Start" button - mark as streaming
   socket.on('start_monitoring', async (data) => {
     try {
-      console.log(`User started monitoring: ${data.deviceId}`);
-      
       // Update streaming status in database
       await User.findOneAndUpdate(
         { deviceId: data.deviceId },
@@ -307,15 +697,12 @@ io.on('connection', (socket) => {
       // Notify all admins that user list has changed
       io.emit('user_status_changed');
     } catch (error) {
-      console.error('Error updating streaming status:', error);
     }
   });
 
   // When user stops monitoring
   socket.on('stop_monitoring', async (data) => {
     try {
-      console.log(`User stopped monitoring: ${data.deviceId}`);
-      
       // Update streaming status in database
       await User.findOneAndUpdate(
         { deviceId: data.deviceId },
@@ -325,38 +712,53 @@ io.on('connection', (socket) => {
       // Notify all admins that user list has changed
       io.emit('user_status_changed');
     } catch (error) {
-      console.error('Error updating streaming status:', error);
+    }
+  });
+
+  // When user logs out
+  socket.on('logout', async (data) => {
+    try {
+      // Update user status to offline
+      await User.findOneAndUpdate(
+        { deviceId: data.deviceId },
+        { 
+          isOnline: false, 
+          isStreaming: false,
+          lastSeen: new Date() 
+        }
+      );
+      
+      // Remove from connected clients
+      connectedClients.delete(data.deviceId);
+      
+      // Notify all admins that user list has changed
+      io.emit('user_status_changed');
+    } catch (error) {
     }
   });
 
   // When an admin wants to see a screen
   socket.on('request_stream', async (data) => {
-    console.log(`Admin (${socket.id}) requested stream for device: ${data.targetDeviceId}`);
-    console.log(`Connected clients:`, Array.from(connectedClients.keys()));
     const previousTargetDeviceId = adminViewingTargets.get(socket.id);
 
     // Verify the target user is actually online and streaming
     try {
       const targetUser = await User.findOne({ deviceId: data.targetDeviceId });
       if (!targetUser) {
-        console.log(`User with device ID ${data.targetDeviceId} not found in database`);
         socket.emit('stream_error', { message: 'User not found' });
         return;
       }
 
       if (!targetUser.isOnline) {
-        console.log(`User ${targetUser.username} is offline`);
         socket.emit('stream_error', { message: 'User is offline' });
         return;
       }
 
       if (!targetUser.isStreaming) {
-        console.log(`User ${targetUser.username} is not streaming`);
         socket.emit('stream_error', { message: 'User has not enabled monitoring' });
         return;
       }
     } catch (error) {
-      console.error('Error verifying user status:', error);
       socket.emit('stream_error', { message: 'Failed to verify user status' });
       return;
     }
@@ -365,7 +767,6 @@ io.on('connection', (socket) => {
     if (previousTargetDeviceId && previousTargetDeviceId !== data.targetDeviceId) {
       const previousSocketId = connectedClients.get(previousTargetDeviceId);
       if (previousSocketId) {
-        console.log(`🔄 Switching: Stopping stream from device: ${previousTargetDeviceId}`);
         io.to(previousSocketId).emit('stop_stream', { adminId: socket.id });
         // Small delay to ensure clean switch
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -374,7 +775,6 @@ io.on('connection', (socket) => {
     
     const targetSocketId = connectedClients.get(data.targetDeviceId);
     if (targetSocketId) {
-      console.log(`✅ Found target socket ID: ${targetSocketId}, initiating stream...`);
       // Send a 'start_stream' command ONLY to that specific user's PC
       io.to(targetSocketId).emit('start_stream', { adminId: socket.id });
       adminViewingTargets.set(socket.id, data.targetDeviceId);
@@ -382,7 +782,6 @@ io.on('connection', (socket) => {
       // Confirm stream switch to admin
       socket.emit('stream_switched', { deviceId: data.targetDeviceId });
     } else {
-      console.log(`❌ Could not find active socket for device ID: ${data.targetDeviceId}`);
       socket.emit('stream_error', { message: 'User connection not found. Please refresh and try again.' });
     }
   });
@@ -395,7 +794,6 @@ io.on('connection', (socket) => {
 
     const targetSocketId = connectedClients.get(targetDeviceId);
     if (targetSocketId) {
-      console.log(`Admin (${socket.id}) requested to stop stream for device: ${targetDeviceId}`);
       io.to(targetSocketId).emit('stop_stream', { adminId: socket.id });
     }
 
@@ -404,19 +802,15 @@ io.on('connection', (socket) => {
 
   // When the client agent sends an image, we forward it to the admin
   socket.on('stream_data', (data) => {
-    console.log(`📸 Received frame from client (${data.image.length} bytes), forwarding to admin: ${data.adminId}`);
     io.to(data.adminId).emit('new_frame', { image: data.image });
   });
 
   // Handle disconnections
   socket.on('disconnect', async () => {
-    console.log('User disconnected:', socket.id);
-
     const viewingTarget = adminViewingTargets.get(socket.id);
     if (viewingTarget) {
       const viewingSocketId = connectedClients.get(viewingTarget);
       if (viewingSocketId) {
-        console.log(`Stopping stream from device: ${viewingTarget} due to admin disconnect: ${socket.id}`);
         io.to(viewingSocketId).emit('stop_stream', { adminId: socket.id });
       }
       adminViewingTargets.delete(socket.id);
@@ -437,7 +831,6 @@ io.on('connection', (socket) => {
           // Notify all admins that user list has changed
           io.emit('user_status_changed');
         } catch (error) {
-          console.error('Error updating user offline status:', error);
         }
         
         break;
@@ -449,5 +842,4 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 4000;
 
 server.listen(PORT, () => {
-  console.log(`Server is online, listening on port ${PORT}`);
 });
