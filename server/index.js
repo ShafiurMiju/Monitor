@@ -97,31 +97,18 @@ app.post('/api/signup', async (req, res) => {
       });
     }
 
-    // Check if user already exists - check each field separately for better error messages
-    const existingEmail = await User.findOne({ email });
-    if (existingEmail) {
-      console.error('❌ User already exists with this email:', email);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'User with this email already exists' 
-      });
-    }
+        // Check if user already exists
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { username }, { deviceId }] 
+    });
 
-    const existingUsername = await User.findOne({ username });
-    if (existingUsername) {
-      console.error('❌ User already exists with this username:', username);
+    if (existingUser) {
+      const conflictField = existingUser.email === email ? 'email' : 
+                           existingUser.username === username ? 'username' : 'device';
+      console.error('❌ User already exists with this', conflictField);
       return res.status(400).json({ 
         success: false, 
-        message: 'User with this username already exists' 
-      });
-    }
-
-    const existingDevice = await User.findOne({ deviceId });
-    if (existingDevice) {
-      console.error('❌ User already exists with this device ID:', deviceId);
-      return res.status(400).json({ 
-        success: false, 
-        message: 'User with this device already exists' 
+        message: `User with this ${conflictField} already exists` 
       });
     }
 
