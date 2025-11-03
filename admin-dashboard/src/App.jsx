@@ -5,6 +5,7 @@ import axios from 'axios';
 import './App.css';
 import Screenshots from './Screenshots';
 import Settings from './Settings';
+import MouseTracking from './MouseTracking';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 
@@ -35,6 +36,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [viewingScreenshots, setViewingScreenshots] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [viewingMouseTracking, setViewingMouseTracking] = useState(null);
   const streamContainerRef = React.useRef(null);
   const frameCountRef = React.useRef(0);
   const lastFrameTimeRef = React.useRef(null);
@@ -252,6 +254,12 @@ function App() {
                     >
                       📸 Screenshots
                     </button>
+                    <button 
+                      className="mouse-tracking-btn"
+                      onClick={() => setViewingMouseTracking(user)}
+                    >
+                      🖱️ Mouse Track
+                    </button>
                   </div>
                 </div>
               ))}
@@ -346,6 +354,14 @@ function App() {
       {showSettings && (
         <Settings 
           onClose={() => setShowSettings(false)} 
+        />
+      )}
+
+      {/* Mouse Tracking Modal */}
+      {viewingMouseTracking && (
+        <MouseTracking 
+          user={viewingMouseTracking} 
+          onClose={() => setViewingMouseTracking(null)} 
         />
       )}
     </div>

@@ -10,6 +10,7 @@ const connectDB = require('./config/database');
 const User = require('./models/User');
 const Screenshot = require('./models/Screenshot');
 const Settings = require('./models/Settings');
+const MouseTracking = require('./models/MouseTracking');
 
 const app = express();
 const server = http.createServer(app);
@@ -401,6 +402,196 @@ app.delete('/api/screenshots/cleanup/:days', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to cleanup screenshots' 
+    });
+  }
+});
+
+// ============ Mouse Tracking API Endpoints ============
+
+// Save mouse tracking data
+app.post('/api/mouse-tracking', async (req, res) => {
+  try {
+    const { userId, deviceId, username, sessionId, movements, clicks, scrolls, screenResolution } = req.body;
+
+    if (!userId || !deviceId || !username || !sessionId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+    }
+
+    // Check if session already exists
+    let tracking = await MouseTracking.findOne({ sessionId });
+
+    if (tracking) {
+      // Update existing session
+      if (movements && movements.length > 0) {
+        tracking.movements.push(...movements);
+      }
+      if (clicks && clicks.length > 0) {
+        tracking.clicks.push(...clicks);
+      }
+      if (scrolls && scrolls.length > 0) {
+        tracking.scrolls.push(...scrolls);
+      }
+      tracking.endTime = new Date();
+      await tracking.save();
+    } else {
+      // Create new session
+      tracking = await MouseTracking.create({
+        userId,
+        deviceId,
+        username,
+        sessionId,
+        movements: movements || [],
+        clicks: clicks || [],
+        scrolls: scrolls || [],
+        screenResolution: screenResolution || { width: 1920, height: 1080 },
+        endTime: new Date()
+      });
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Mouse tracking data saved successfully'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to save mouse tracking data' 
+    });
+  }
+});
+
+// Get mouse tracking data for a specific user
+app.get('/api/mouse-tracking/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 10, skip = 0, sessionId } = req.query;
+
+    let query = { userId };
+    if (sessionId) {
+      query.sessionId = sessionId;
+    }
+
+    const trackingData = await MouseTracking.find(query)
+      .sort({ startTime: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+
+    const total = await MouseTracking.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      trackingData,
+      total,
+      hasMore: total > (parseInt(skip) + trackingData.length)
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch mouse tracking data' 
+    });
+  }
+});
+
+// Get specific session data
+app.get('/api/mouse-tracking/session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const tracking = await MouseTracking.findOne({ sessionId });
+
+    if (!tracking) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Session not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      tracking
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch session data' 
+    });
+  }
+});
+
+// Get aggregated statistics
+app.get('/api/mouse-tracking/:userId/stats', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    let query = { userId };
+    if (startDate || endDate) {
+      query.startTime = {};
+      if (startDate) query.startTime.$gte = new Date(startDate);
+      if (endDate) query.startTime.$lte = new Date(endDate);
+    }
+
+    const trackingData = await MouseTracking.find(query);
+
+    let totalMovements = 0;
+    let totalLeftClicks = 0;
+    let totalRightClicks = 0;
+    let totalMiddleClicks = 0;
+    let totalScrolls = 0;
+
+    trackingData.forEach(session => {
+      totalMovements += session.movements.length;
+      session.clicks.forEach(click => {
+        if (click.button === 'left') totalLeftClicks++;
+        else if (click.button === 'right') totalRightClicks++;
+        else if (click.button === 'middle') totalMiddleClicks++;
+      });
+      totalScrolls += session.scrolls.length;
+    });
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        totalSessions: trackingData.length,
+        totalMovements,
+        totalLeftClicks,
+        totalRightClicks,
+        totalMiddleClicks,
+        totalClicks: totalLeftClicks + totalRightClicks + totalMiddleClicks,
+        totalScrolls
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch statistics' 
+    });
+  }
+});
+
+// Delete old mouse tracking data (cleanup endpoint)
+app.delete('/api/mouse-tracking/cleanup/:days', async (req, res) => {
+  try {
+    const { days } = req.params;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
+
+    const result = await MouseTracking.deleteMany({
+      startTime: { $lt: cutoffDate }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Deleted ${result.deletedCount} old mouse tracking sessions`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to cleanup mouse tracking data' 
     });
   }
 });

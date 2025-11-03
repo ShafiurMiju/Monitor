@@ -240,6 +240,28 @@ body {
   transform: translateY(0);
 }
 
+.mouse-tracking-btn {
+  width: 100%;
+  padding: 10px;
+  background: linear-gradient(135deg, #FF6B6B 0%, #EE5A6F 100%);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.mouse-tracking-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+}
+
+.mouse-tracking-btn:active {
+  transform: translateY(0);
+}
+
 .stream-section {
   background: white;
   padding: 20px;

@@ -1,5 +1,5 @@
 // client-agent/main.js
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const { io } = require("socket.io-client");
 const screenshot = require('screenshot-desktop');
 const axios = require('axios');
@@ -7,6 +7,7 @@ const os = require('os');
 const { machineId } = require('node-machine-id');
 const path = require('path');
 const fs = require('fs');
+const { uIOhook, UiohookKey } = require('uiohook-napi');
 
 // Load environment variables based on command line argument or NODE_ENV
 const args = process.argv.slice(1);
@@ -37,6 +38,15 @@ let currentSettings = {
   screenshotInterval: 6000,
   streamingEnabled: true
 };
+let mouseTrackingData = {
+  sessionId: null,
+  movements: [],
+  clicks: [],
+  scrolls: [],
+  screenResolution: { width: 0, height: 0 }
+};
+let mouseTrackingInterval = null;
+let isTrackingMouse = false;
 
 // Resolve a stable device identifier without relying on network hardware.
 async function getDeviceIdentifier() {
@@ -164,6 +174,9 @@ ipcMain.handle('signup', async (event, data) => {
       // Start screenshot capture interval automatically based on settings
       startScreenshotCapture();
       
+      // Start mouse tracking
+      startMouseTracking();
+      
       return { success: true, user: response.data.user };
     } else {
       return { success: false, message: response.data.message };
@@ -267,6 +280,9 @@ ipcMain.handle('login', async (event, data) => {
       
       // Start screenshot capture interval automatically based on settings
       startScreenshotCapture();
+      
+      // Start mouse tracking
+      startMouseTracking();
       
       return { success: true, user: response.data.user };
     } else {
@@ -487,8 +503,139 @@ ipcMain.handle('stop-monitoring', async (event) => {
   }
 });
 
+// ============ Mouse Tracking Functions ============
+
+// Generate unique session ID
+function generateSessionId() {
+  return `${currentUser.deviceId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Start mouse tracking
+function startMouseTracking() {
+  if (isTrackingMouse || !currentUser) {
+    return;
+  }
+
+  isTrackingMouse = true;
+  
+  // Initialize session
+  mouseTrackingData.sessionId = generateSessionId();
+  mouseTrackingData.movements = [];
+  mouseTrackingData.clicks = [];
+  mouseTrackingData.scrolls = [];
+  
+  // Get screen resolution
+  const primaryDisplay = screen.getPrimaryDisplay();
+  mouseTrackingData.screenResolution = {
+    width: primaryDisplay.size.width,
+    height: primaryDisplay.size.height
+  };
+
+  // Start uiohook to track mouse events
+  try {
+    uIOhook.on('mousemove', (e) => {
+      if (isTrackingMouse) {
+        mouseTrackingData.movements.push({
+          x: e.x,
+          y: e.y,
+          timestamp: new Date()
+        });
+      }
+    });
+
+    uIOhook.on('click', (e) => {
+      if (isTrackingMouse) {
+        let button = 'left';
+        if (e.button === 2) button = 'right';
+        else if (e.button === 3) button = 'middle';
+        
+        mouseTrackingData.clicks.push({
+          x: e.x,
+          y: e.y,
+          button: button,
+          timestamp: new Date()
+        });
+      }
+    });
+
+    uIOhook.on('wheel', (e) => {
+      if (isTrackingMouse) {
+        mouseTrackingData.scrolls.push({
+          deltaX: e.x,
+          deltaY: e.rotation,
+          timestamp: new Date()
+        });
+      }
+    });
+
+    uIOhook.start();
+  } catch (error) {
+  }
+
+  // Send data to server every 30 seconds
+  mouseTrackingInterval = setInterval(uploadMouseTrackingData, 30000);
+}
+
+// Stop mouse tracking
+function stopMouseTracking() {
+  if (!isTrackingMouse) {
+    return;
+  }
+
+  isTrackingMouse = false;
+
+  try {
+    uIOhook.stop();
+  } catch (error) {
+  }
+
+  if (mouseTrackingInterval) {
+    clearInterval(mouseTrackingInterval);
+    mouseTrackingInterval = null;
+  }
+
+  // Upload final data before stopping
+  uploadMouseTrackingData();
+}
+
+// Upload mouse tracking data to server
+async function uploadMouseTrackingData() {
+  if (!currentUser || !mouseTrackingData.sessionId) {
+    return;
+  }
+
+  // Only upload if there's data
+  if (mouseTrackingData.movements.length === 0 && 
+      mouseTrackingData.clicks.length === 0 && 
+      mouseTrackingData.scrolls.length === 0) {
+    return;
+  }
+
+  try {
+    await axios.post(`${SERVER_URL}/api/mouse-tracking`, {
+      userId: currentUser.id,
+      deviceId: currentUser.deviceId,
+      username: currentUser.username,
+      sessionId: mouseTrackingData.sessionId,
+      movements: mouseTrackingData.movements,
+      clicks: mouseTrackingData.clicks,
+      scrolls: mouseTrackingData.scrolls,
+      screenResolution: mouseTrackingData.screenResolution
+    });
+
+    // Clear data after successful upload
+    mouseTrackingData.movements = [];
+    mouseTrackingData.clicks = [];
+    mouseTrackingData.scrolls = [];
+  } catch (error) {
+  }
+}
+
 // Cleanup function when app is closing
 async function cleanup() {
+  // Stop mouse tracking
+  stopMouseTracking();
+
   // Stop all intervals
   if (streamingInterval) {
     clearInterval(streamingInterval);
