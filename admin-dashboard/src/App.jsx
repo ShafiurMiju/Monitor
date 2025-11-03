@@ -5,6 +5,7 @@ import axios from 'axios';
 import './App.css';
 import Screenshots from './Screenshots';
 import Settings from './Settings';
+import Heatmaps from './Heatmaps';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
 
@@ -35,6 +36,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [viewingScreenshots, setViewingScreenshots] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [viewingHeatmaps, setViewingHeatmaps] = useState(null);
   const streamContainerRef = React.useRef(null);
   const frameCountRef = React.useRef(0);
   const lastFrameTimeRef = React.useRef(null);
@@ -252,6 +254,12 @@ function App() {
                     >
                       📸 Screenshots
                     </button>
+                    <button 
+                      className="heatmaps-btn"
+                      onClick={() => setViewingHeatmaps(user)}
+                    >
+                      🔥 Heatmaps
+                    </button>
                   </div>
                 </div>
               ))}
@@ -339,6 +347,14 @@ function App() {
         <Screenshots 
           user={viewingScreenshots} 
           onClose={() => setViewingScreenshots(null)} 
+        />
+      )}
+
+      {/* Heatmaps Modal */}
+      {viewingHeatmaps && (
+        <Heatmaps 
+          user={viewingHeatmaps} 
+          onClose={() => setViewingHeatmaps(null)} 
         />
       )}
 

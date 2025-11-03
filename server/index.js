@@ -10,6 +10,7 @@ const connectDB = require('./config/database');
 const User = require('./models/User');
 const Screenshot = require('./models/Screenshot');
 const Settings = require('./models/Settings');
+const MouseActivity = require('./models/MouseActivity');
 
 const app = express();
 const server = http.createServer(app);
@@ -401,6 +402,185 @@ app.delete('/api/screenshots/cleanup/:days', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to cleanup screenshots' 
+    });
+  }
+});
+
+// ============ Mouse Activity API Endpoints ============
+
+// Batch upload mouse activity data
+app.post('/api/mouse-activity/batch', async (req, res) => {
+  try {
+    const { userId, deviceId, username, computerName, activities } = req.body;
+
+    console.log('📊 Received mouse activity batch:', {
+      userId,
+      deviceId,
+      username,
+      activitiesCount: activities?.length
+    });
+
+    if (!userId || !deviceId || !username || !activities || !Array.isArray(activities)) {
+      console.log('❌ Invalid mouse activity data');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields or invalid activities array' 
+      });
+    }
+
+    // Prepare batch insert data
+    const mouseActivities = activities.map(activity => ({
+      userId,
+      deviceId,
+      username,
+      computerName: computerName || '',
+      eventType: activity.eventType,
+      x: activity.x,
+      y: activity.y,
+      screenWidth: activity.screenWidth,
+      screenHeight: activity.screenHeight,
+      scrollX: activity.scrollX || 0,
+      scrollY: activity.scrollY || 0,
+      timestamp: activity.timestamp || new Date()
+    }));
+
+    // Bulk insert
+    await MouseActivity.insertMany(mouseActivities);
+
+    console.log('✅ Saved', mouseActivities.length, 'mouse activities');
+
+    res.status(201).json({
+      success: true,
+      message: 'Mouse activities saved successfully',
+      count: mouseActivities.length
+    });
+  } catch (error) {
+    console.error('❌ Error saving mouse activities:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to save mouse activities' 
+    });
+  }
+});
+
+// Get mouse activity for a specific user
+app.get('/api/mouse-activity/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { 
+      limit = 5000, 
+      skip = 0, 
+      eventType,
+      startDate,
+      endDate 
+    } = req.query;
+
+    console.log('📊 Fetching mouse activity for userId:', userId);
+
+    // Build query
+    const query = { userId };
+    
+    if (eventType) {
+      query.eventType = eventType;
+    }
+
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) query.timestamp.$gte = new Date(startDate);
+      if (endDate) query.timestamp.$lte = new Date(endDate);
+    }
+
+    console.log('Query:', JSON.stringify(query));
+
+    const activities = await MouseActivity.find(query)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip))
+      .lean();
+
+    const total = await MouseActivity.countDocuments(query);
+
+    console.log('✅ Found', activities.length, 'activities out of', total, 'total');
+
+    res.status(200).json({
+      success: true,
+      activities,
+      total,
+      hasMore: total > (parseInt(skip) + activities.length)
+    });
+  } catch (error) {
+    console.error('❌ Error fetching mouse activities:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch mouse activities' 
+    });
+  }
+});
+
+// Get mouse activity statistics
+app.get('/api/mouse-activity/:userId/stats', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    // Build query
+    const query = { userId };
+    
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) query.timestamp.$gte = new Date(startDate);
+      if (endDate) query.timestamp.$lte = new Date(endDate);
+    }
+
+    // Get counts by event type
+    const stats = await MouseActivity.aggregate([
+      { $match: query },
+      { 
+        $group: { 
+          _id: '$eventType', 
+          count: { $sum: 1 } 
+        } 
+      }
+    ]);
+
+    const totalEvents = await MouseActivity.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      stats: stats.reduce((acc, curr) => {
+        acc[curr._id] = curr.count;
+        return acc;
+      }, {}),
+      totalEvents
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch mouse activity statistics' 
+    });
+  }
+});
+
+// Delete old mouse activity data (cleanup endpoint)
+app.delete('/api/mouse-activity/cleanup/:days', async (req, res) => {
+  try {
+    const { days } = req.params;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
+
+    const result = await MouseActivity.deleteMany({
+      timestamp: { $lt: cutoffDate }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Deleted ${result.deletedCount} old mouse activity records`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to cleanup mouse activity data' 
     });
   }
 });

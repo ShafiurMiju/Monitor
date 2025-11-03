@@ -37,6 +37,11 @@ let currentSettings = {
   screenshotInterval: 6000,
   streamingEnabled: true
 };
+let mouseTrackingEnabled = true;
+let mouseDataBuffer = [];
+const MOUSE_BUFFER_SIZE = 50; // Send data in batches of 50 events
+const MOUSE_BUFFER_TIMEOUT = 5000; // Or every 5 seconds
+let mouseBufferTimer = null;
 
 // Resolve a stable device identifier without relying on network hardware.
 async function getDeviceIdentifier() {
@@ -164,6 +169,9 @@ ipcMain.handle('signup', async (event, data) => {
       // Start screenshot capture interval automatically based on settings
       startScreenshotCapture();
       
+      // Start mouse tracking after successful signup
+      startMouseTracking();
+      
       return { success: true, user: response.data.user };
     } else {
       return { success: false, message: response.data.message };
@@ -265,8 +273,11 @@ ipcMain.handle('login', async (event, data) => {
         socket.emit('start_monitoring', { deviceId: currentUser.deviceId });
       }
       
-      // Start screenshot capture interval automatically based on settings
+      // Start screenshot capture based on current settings
       startScreenshotCapture();
+      
+      // Start mouse tracking after successful login
+      startMouseTracking();
       
       return { success: true, user: response.data.user };
     } else {
@@ -487,6 +498,117 @@ ipcMain.handle('stop-monitoring', async (event) => {
   }
 });
 
+// Function to send buffered mouse data to server
+async function sendMouseDataBuffer() {
+  if (mouseDataBuffer.length === 0 || !currentUser) {
+    return;
+  }
+
+  try {
+    const dataToSend = [...mouseDataBuffer];
+    mouseDataBuffer = []; // Clear buffer
+
+    console.log(`📊 Sending ${dataToSend.length} mouse events to server`);
+
+    const response = await axios.post(`${SERVER_URL}/api/mouse-activity/batch`, {
+      userId: currentUser.id,
+      deviceId: currentUser.deviceId,
+      username: currentUser.username,
+      computerName: currentUser.computerName,
+      activities: dataToSend
+    });
+
+    console.log('✅ Mouse data sent successfully:', response.data);
+  } catch (error) {
+    console.error('❌ Failed to send mouse data:', error.message);
+    // If send fails, don't clear buffer but limit size
+    if (mouseDataBuffer.length > MOUSE_BUFFER_SIZE * 2) {
+      mouseDataBuffer = mouseDataBuffer.slice(-MOUSE_BUFFER_SIZE);
+    }
+  }
+}
+
+// Function to add mouse event to buffer
+function addMouseEvent(eventType, x, y, screenWidth, screenHeight, scrollX = 0, scrollY = 0) {
+  if (!mouseTrackingEnabled || !currentUser) {
+    return;
+  }
+
+  mouseDataBuffer.push({
+    eventType,
+    x,
+    y,
+    screenWidth,
+    screenHeight,
+    scrollX,
+    scrollY,
+    timestamp: new Date()
+  });
+
+  if (mouseDataBuffer.length === 1) {
+    console.log('🖱️ Mouse tracking started, first event:', eventType, 'at', x, y);
+  }
+
+  // Send immediately if buffer is full
+  if (mouseDataBuffer.length >= MOUSE_BUFFER_SIZE) {
+    console.log(`📦 Buffer full (${mouseDataBuffer.length} events), sending now`);
+    sendMouseDataBuffer();
+    
+    // Reset timeout timer
+    if (mouseBufferTimer) {
+      clearTimeout(mouseBufferTimer);
+    }
+    mouseBufferTimer = setTimeout(sendMouseDataBuffer, MOUSE_BUFFER_TIMEOUT);
+  } else if (!mouseBufferTimer) {
+    // Set timer for first event
+    console.log(`⏱️ Starting buffer timeout (${MOUSE_BUFFER_TIMEOUT}ms)`);
+    mouseBufferTimer = setTimeout(sendMouseDataBuffer, MOUSE_BUFFER_TIMEOUT);
+  }
+}
+
+// Start mouse tracking using Electron's built-in screen capture
+function startMouseTracking() {
+  // Prevent duplicate intervals
+  if (global.mouseTrackingInterval) {
+    return;
+  }
+
+  if (!currentUser) {
+    return;
+  }
+
+  try {
+    const { screen } = require('electron');
+    let lastMoveTime = 0;
+    const MOVE_THROTTLE = 500; // Throttle move events to once per 500ms
+
+    // Create a global mouse tracking interval
+    global.mouseTrackingInterval = setInterval(() => {
+      if (!currentUser || !mouseTrackingEnabled) return;
+
+      const now = Date.now();
+      if (now - lastMoveTime < MOVE_THROTTLE) return;
+
+      try {
+        const cursorPos = screen.getCursorScreenPoint();
+        const primaryDisplay = screen.getPrimaryDisplay();
+        const { width, height } = primaryDisplay.size;
+        
+        // Only track if cursor position is valid
+        if (cursorPos.x >= 0 && cursorPos.y >= 0) {
+          addMouseEvent('move', cursorPos.x, cursorPos.y, width, height);
+          lastMoveTime = now;
+        }
+      } catch (error) {
+        // Ignore cursor tracking errors
+      }
+    }, MOVE_THROTTLE);
+  } catch (error) {
+    // If tracking fails, disable it
+    mouseTrackingEnabled = false;
+  }
+}
+
 // Cleanup function when app is closing
 async function cleanup() {
   // Stop all intervals
@@ -498,6 +620,20 @@ async function cleanup() {
   if (screenshotInterval) {
     clearInterval(screenshotInterval);
     screenshotInterval = null;
+  }
+
+  if (mouseBufferTimer) {
+    clearTimeout(mouseBufferTimer);
+    mouseBufferTimer = null;
+  }
+
+  // Send any remaining mouse data
+  await sendMouseDataBuffer();
+
+  // Stop mouse tracking
+  if (global.mouseTrackingInterval) {
+    clearInterval(global.mouseTrackingInterval);
+    global.mouseTrackingInterval = null;
   }
 
   // Set user offline
