@@ -21,6 +21,15 @@
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "**/*",
+      "!**/node_modules/**/*",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/screenshot-desktop/**/*",
+      "**/node_modules/**/*.node"
+    ],
     "win": {
       "target": [
         {
