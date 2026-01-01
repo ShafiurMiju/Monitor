@@ -8,6 +8,9 @@ const { machineId } = require('node-machine-id');
 const path = require('path');
 const fs = require('fs');
 const { uIOhook, UiohookKey } = require('uiohook-napi');
+const { exec } = require('child_process');
+const util = require('util');
+const execPromise = util.promisify(exec);
 
 // Load environment variables based on command line argument or NODE_ENV
 const args = process.argv.slice(1);
@@ -47,6 +50,12 @@ let mouseTrackingData = {
 };
 let mouseTrackingInterval = null;
 let isTrackingMouse = false;
+let appTrackingInterval = null;
+let appUploadInterval = null;
+let isTrackingApps = false;
+let currentApp = null;
+let appStartTime = null;
+let appUsageBuffer = [];
 
 // Resolve a stable device identifier without relying on network hardware.
 async function getDeviceIdentifier() {
@@ -98,6 +107,9 @@ ipcMain.handle('signup', async (event, data) => {
 
     if (response.data.success) {
       currentUser = response.data.user;
+      
+      // Start app tracking
+      startAppTracking();
       
       // Connect to socket immediately after signup
       if (!socket) {
@@ -283,6 +295,9 @@ ipcMain.handle('login', async (event, data) => {
       
       // Start mouse tracking
       startMouseTracking();
+      
+      // Start app tracking
+      startAppTracking();
       
       return { success: true, user: response.data.user };
     } else {
@@ -631,8 +646,198 @@ async function uploadMouseTrackingData() {
   }
 }
 
+// ============ App Usage Tracking Functions ============
+
+// Get active window using PowerShell (Windows-only)
+async function getActiveWindow() {
+  try {
+    const scriptPath = path.join(__dirname, 'get-active-window.ps1');
+    const { stdout } = await execPromise(
+      `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`,
+      { timeout: 3000 }
+    );
+    
+    const output = stdout.trim();
+    if (!output) return null;
+    
+    const result = JSON.parse(output);
+    
+    if (result && result.ProcessName) {
+      return {
+        owner: { name: result.ProcessName },
+        title: result.WindowTitle || ''
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting active window:', error.message);
+    return null;
+  }
+}
+
+// Start app usage tracking
+async function startAppTracking() {
+  if (isTrackingApps || !currentUser) {
+    console.log('App tracking not started:', { isTrackingApps, hasUser: !!currentUser });
+    return;
+  }
+
+  console.log('Starting app tracking for user:', currentUser.username);
+
+  // Test if we can get active window
+  try {
+    const testWindow = await getActiveWindow();
+    console.log('Active window detection test successful:', testWindow);
+  } catch (error) {
+    console.error('Active window detection test failed:', error);
+    return;
+  }
+
+  isTrackingApps = true;
+  appUsageBuffer = [];
+
+  // Track active window every 2 seconds
+  appTrackingInterval = setInterval(async () => {
+    try {
+      const activeWindow = await getActiveWindow();
+      
+      if (activeWindow) {
+        const appName = activeWindow.owner.name || 'Unknown';
+        const windowTitle = activeWindow.title || '';
+
+        console.log('Active app detected:', appName);
+
+        // Check if app changed
+        if (!currentApp || currentApp !== appName) {
+          // Save previous app usage if exists
+          if (currentApp && appStartTime) {
+            const endTime = new Date();
+            const duration = Math.floor((endTime - appStartTime) / 1000); // in seconds
+
+            if (duration > 0) {
+              appUsageBuffer.push({
+                appName: currentApp,
+                windowTitle: '',
+                startTime: appStartTime,
+                endTime: endTime,
+                duration: duration
+              });
+              console.log(`Buffered app usage: ${currentApp} - ${duration}s (Buffer size: ${appUsageBuffer.length})`);
+            }
+          }
+
+          // Start tracking new app
+          currentApp = appName;
+          appStartTime = new Date();
+          console.log(`Started tracking: ${appName}`);
+        }
+      } else {
+        console.log('No active window detected');
+      }
+    } catch (error) {
+      console.error('Error tracking app:', error);
+    }
+  }, 2000);
+
+  // Upload app usage data every 15 seconds (reduced for more responsive updates)
+  appUploadInterval = setInterval(uploadAppUsageData, 15000);
+  
+  // Do an immediate upload after 10 seconds to get initial data
+  setTimeout(uploadAppUsageData, 10000);
+  
+  console.log('App tracking started successfully - will check every 2 seconds and upload every 15 seconds');
+}
+
+// Stop app usage tracking
+function stopAppTracking() {
+  if (!isTrackingApps) {
+    return;
+  }
+
+  isTrackingApps = false;
+
+  if (appTrackingInterval) {
+    clearInterval(appTrackingInterval);
+    appTrackingInterval = null;
+  }
+
+  if (appUploadInterval) {
+    clearInterval(appUploadInterval);
+    appUploadInterval = null;
+  }
+
+  // Save current app before stopping
+  if (currentApp && appStartTime) {
+    const endTime = new Date();
+    const duration = Math.floor((endTime - appStartTime) / 1000);
+
+    if (duration > 0) {
+      appUsageBuffer.push({
+        appName: currentApp,
+        windowTitle: '',
+        startTime: appStartTime,
+        endTime: endTime,
+        duration: duration
+      });
+    }
+  }
+
+  // Upload final data before stopping
+  uploadAppUsageData();
+
+  currentApp = null;
+  appStartTime = null;
+}
+
+// Upload app usage data to server
+async function uploadAppUsageData() {
+  if (!currentUser) {
+    console.log('No user logged in, skipping upload');
+    return;
+  }
+
+  if (appUsageBuffer.length === 0) {
+    console.log('No app usage data to upload');
+    return;
+  }
+
+  console.log(`Uploading ${appUsageBuffer.length} app usage records...`);
+
+  try {
+    // Upload each app usage record
+    for (const usage of appUsageBuffer) {
+      const response = await axios.post(`${SERVER_URL}/api/app-usage`, {
+        userId: currentUser.id,
+        deviceId: currentUser.deviceId,
+        username: currentUser.username,
+        appName: usage.appName,
+        windowTitle: usage.windowTitle,
+        startTime: usage.startTime,
+        endTime: usage.endTime,
+        duration: usage.duration
+      });
+      console.log(`✓ Uploaded: ${usage.appName} - ${usage.duration}s`);
+    }
+
+    // Clear buffer after successful upload
+    console.log(`✓ Successfully uploaded ${appUsageBuffer.length} app usage records`);
+    appUsageBuffer = [];
+  } catch (error) {
+    console.error('✗ Failed to upload app usage data:', error.response?.data || error.message);
+    console.error('Error details:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data
+    });
+    // Keep data in buffer for next attempt if upload fails
+  }
+}
+
 // Cleanup function when app is closing
 async function cleanup() {
+  // Stop app tracking
+  stopAppTracking();
+  
   // Stop mouse tracking
   stopMouseTracking();
 

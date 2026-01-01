@@ -11,6 +11,7 @@ const User = require('./models/User');
 const Screenshot = require('./models/Screenshot');
 const Settings = require('./models/Settings');
 const MouseTracking = require('./models/MouseTracking');
+const AppUsage = require('./models/AppUsage');
 
 const app = express();
 const server = http.createServer(app);
@@ -592,6 +593,271 @@ app.delete('/api/mouse-tracking/cleanup/:days', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to cleanup mouse tracking data' 
+    });
+  }
+});
+
+// ============ App Usage Tracking API Endpoints ============
+
+// Save app usage data
+app.post('/api/app-usage', async (req, res) => {
+  try {
+    const { userId, deviceId, username, appName, windowTitle, startTime, endTime, duration } = req.body;
+
+    if (!userId || !deviceId || !username || !appName) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+    }
+
+    const appUsage = await AppUsage.create({
+      userId,
+      deviceId,
+      username,
+      appName,
+      windowTitle: windowTitle || '',
+      startTime: startTime || new Date(),
+      endTime: endTime || new Date(),
+      duration: duration || 0
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'App usage data saved successfully',
+      appUsage: {
+        id: appUsage._id,
+        appName: appUsage.appName
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to save app usage data' 
+    });
+  }
+});
+
+// Get app usage data for a specific user
+app.get('/api/app-usage/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { limit = 100, skip = 0, startDate, endDate } = req.query;
+
+    let query = { userId };
+    
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) query.timestamp.$gte = new Date(startDate);
+      if (endDate) query.timestamp.$lte = new Date(endDate);
+    }
+
+    const appUsageData = await AppUsage.find(query)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+
+    const total = await AppUsage.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      appUsageData,
+      total,
+      hasMore: total > (parseInt(skip) + appUsageData.length)
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch app usage data' 
+    });
+  }
+});
+
+// Get app usage statistics for a user
+app.get('/api/app-usage/:userId/stats', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    let query = { userId: new mongoose.Types.ObjectId(userId) };
+
+    console.log('App usage query with dates:', { startDate, endDate });
+
+    // Get all app usage records
+    const allRecords = await AppUsage.find(query);
+
+    // Function to split session by date
+    const splitSessionByDate = (record, filterStartDate, filterEndDate) => {
+      const sessions = [];
+      const startTime = new Date(record.startTime);
+      const endTime = new Date(record.endTime);
+      
+      // Get start and end of day for dates
+      let currentDate = new Date(startTime);
+      currentDate.setHours(0, 0, 0, 0);
+      
+      while (currentDate <= endTime) {
+        const dayStart = new Date(currentDate);
+        const dayEnd = new Date(currentDate);
+        dayEnd.setHours(23, 59, 59, 999);
+        
+        // Check if this day is within filter range
+        // Use local date formatting instead of UTC to match frontend filtering
+        const year = currentDate.getFullYear();
+        const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+        const day = String(currentDate.getDate()).padStart(2, '0');
+        const dayDateStr = `${year}-${month}-${day}`;
+        
+        let shouldInclude = true;
+        if (filterStartDate && !filterEndDate) {
+          // Single date filter - only include this specific date
+          shouldInclude = dayDateStr === filterStartDate;
+        } else if (filterStartDate || filterEndDate) {
+          // Date range filter
+          if (filterStartDate && dayDateStr < filterStartDate) shouldInclude = false;
+          if (filterEndDate && dayDateStr > filterEndDate) shouldInclude = false;
+        }
+        
+        if (shouldInclude) {
+          // Calculate duration for this day
+          const sessionStart = startTime > dayStart ? startTime : dayStart;
+          const sessionEnd = endTime < dayEnd ? endTime : dayEnd;
+          
+          if (sessionStart <= sessionEnd) {
+            const durationMs = sessionEnd - sessionStart;
+            const durationSeconds = Math.floor(durationMs / 1000);
+            
+            if (durationSeconds > 0) {
+              sessions.push({
+                appName: record.appName,
+                duration: durationSeconds,
+                date: dayDateStr,
+                timestamp: sessionStart
+              });
+            }
+          }
+        }
+        
+        // Move to next day
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      return sessions;
+    };
+
+    // Split all records by date
+    const splitSessions = [];
+    for (const record of allRecords) {
+      if (record.startTime && record.endTime && record.duration > 0) {
+        const sessions = splitSessionByDate(record, startDate, endDate);
+        splitSessions.push(...sessions);
+      }
+    }
+
+    console.log('Split sessions count:', splitSessions.length);
+
+    // Aggregate by app name
+    const appStatsMap = {};
+    let latestTimestamp = {};
+    
+    splitSessions.forEach(session => {
+      if (!appStatsMap[session.appName]) {
+        appStatsMap[session.appName] = {
+          totalUsageTime: 0,
+          usageCount: 0
+        };
+        latestTimestamp[session.appName] = session.timestamp;
+      }
+      
+      appStatsMap[session.appName].totalUsageTime += session.duration;
+      appStatsMap[session.appName].usageCount += 1;
+      
+      if (session.timestamp > latestTimestamp[session.appName]) {
+        latestTimestamp[session.appName] = session.timestamp;
+      }
+    });
+
+    // Convert to array and sort
+    const appStats = Object.keys(appStatsMap).map(appName => ({
+      _id: appName,
+      totalUsageTime: appStatsMap[appName].totalUsageTime,
+      usageCount: appStatsMap[appName].usageCount,
+      lastUsed: latestTimestamp[appName]
+    })).sort((a, b) => b.totalUsageTime - a.totalUsageTime);
+
+    console.log('Aggregated app stats (first 3):', appStats.slice(0, 3));
+
+    // Get total usage time
+    const totalUsageTime = appStats.reduce((sum, app) => sum + app.totalUsageTime, 0);
+    console.log('Total usage time (raw):', totalUsageTime);
+
+    // Format the response
+    const formattedStats = appStats.map(app => ({
+      appName: app._id,
+      totalUsageTime: app.totalUsageTime,
+      totalUsageTimeFormatted: formatDuration(app.totalUsageTime),
+      usageCount: app.usageCount,
+      lastUsed: app.lastUsed,
+      percentage: totalUsageTime > 0 ? ((app.totalUsageTime / totalUsageTime) * 100).toFixed(2) : 0
+    }));
+
+    res.status(200).json({
+      success: true,
+      stats: formattedStats,
+      totalApps: appStats.length,
+      totalUsageTime,
+      totalUsageTimeFormatted: formatDuration(totalUsageTime)
+    });
+  } catch (error) {
+    console.error('Error in app-usage stats:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch app usage statistics' 
+    });
+  }
+});
+
+// Helper function to format duration
+function formatDuration(value) {
+  // Convert to seconds if the value seems to be in milliseconds (> 100000 suggests milliseconds)
+  let seconds = value;
+  if (value > 100000) {
+    seconds = Math.floor(value / 1000);
+  }
+  
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${secs}s`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  } else {
+    return `${secs}s`;
+  }
+}
+
+// Delete old app usage data (cleanup endpoint)
+app.delete('/api/app-usage/cleanup/:days', async (req, res) => {
+  try {
+    const { days } = req.params;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
+
+    const result = await AppUsage.deleteMany({
+      timestamp: { $lt: cutoffDate }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Deleted ${result.deletedCount} old app usage records`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to cleanup app usage data' 
     });
   }
 });
