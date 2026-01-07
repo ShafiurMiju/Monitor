@@ -56,6 +56,16 @@ let isTrackingApps = false;
 let currentApp = null;
 let appStartTime = null;
 let appUsageBuffer = [];
+let keystrokeTrackingData = {
+  sessionId: null,
+  keystrokes: [],
+  screenResolution: { width: 0, height: 0 },
+  currentApp: null,
+  lastKnownApp: { name: 'Unknown', title: '' }
+};
+let keystrokeTrackingInterval = null;
+let keystrokeAppCheckInterval = null;
+let isTrackingKeystrokes = false;
 
 // Resolve a stable device identifier without relying on network hardware.
 async function getDeviceIdentifier() {
@@ -189,6 +199,9 @@ ipcMain.handle('signup', async (event, data) => {
       // Start mouse tracking
       startMouseTracking();
       
+      // Start keystroke tracking
+      startKeystrokeTracking();
+      
       return { success: true, user: response.data.user };
     } else {
       return { success: false, message: response.data.message };
@@ -298,6 +311,9 @@ ipcMain.handle('login', async (event, data) => {
       
       // Start app tracking
       startAppTracking();
+      
+      // Start keystroke tracking
+      startKeystrokeTracking();
       
       return { success: true, user: response.data.user };
     } else {
@@ -409,6 +425,9 @@ ipcMain.handle('start-monitoring', async (event) => {
 
     // Start screenshot capture based on current settings
     startScreenshotCapture();
+    
+    // Start keystroke tracking
+    startKeystrokeTracking();
 
     return { success: true, message: 'Monitoring started' };
   } catch (error) {
@@ -583,8 +602,22 @@ function startMouseTracking() {
       }
     });
 
+    // Register keystroke listener once
+    uIOhook.on('keydown', (e) => {
+      if (isTrackingKeystrokes) {
+        const app = keystrokeTrackingData.currentApp || keystrokeTrackingData.lastKnownApp;
+        keystrokeTrackingData.keystrokes.push({
+          key: e.keycode.toString(),
+          timestamp: new Date(),
+          appName: app.name,
+          appTitle: app.title
+        });
+      }
+    });
+
     uIOhook.start();
   } catch (error) {
+    console.error('Error starting uIOhook:', error);
   }
 
   // Send data to server every 30 seconds
@@ -643,6 +676,137 @@ async function uploadMouseTrackingData() {
     mouseTrackingData.clicks = [];
     mouseTrackingData.scrolls = [];
   } catch (error) {
+  }
+}
+
+// ============ Keystroke Tracking Functions ============
+
+// Start keystroke tracking
+async function startKeystrokeTracking() {
+  if (isTrackingKeystrokes || !currentUser) {
+    return;
+  }
+
+  isTrackingKeystrokes = true;
+  
+  // Initialize session
+  keystrokeTrackingData.sessionId = generateSessionId();
+  keystrokeTrackingData.keystrokes = [];
+  keystrokeTrackingData.currentApp = null;
+  
+  // Get screen resolution
+  const primaryDisplay = screen.getPrimaryDisplay();
+  keystrokeTrackingData.screenResolution = {
+    width: primaryDisplay.size.width,
+    height: primaryDisplay.size.height
+  };
+
+  console.log('Keystroke tracking started for user:', currentUser.username);
+
+  // Get initial app
+  try {
+    const initialWindow = await getActiveWindow();
+    if (initialWindow) {
+      keystrokeTrackingData.currentApp = {
+        name: initialWindow.owner.name,
+        title: initialWindow.title
+      };
+      keystrokeTrackingData.lastKnownApp = keystrokeTrackingData.currentApp;
+    }
+  } catch (error) {
+    console.error('Failed to get initial window:', error);
+  }
+
+  // Update current app every 1 second for better accuracy
+  keystrokeAppCheckInterval = setInterval(async () => {
+    try {
+      const activeWindow = await getActiveWindow();
+      if (activeWindow) {
+        keystrokeTrackingData.currentApp = {
+          name: activeWindow.owner.name,
+          title: activeWindow.title
+        };
+        keystrokeTrackingData.lastKnownApp = keystrokeTrackingData.currentApp;
+      }
+    } catch (error) {
+      // Keep using last known app on error
+      keystrokeTrackingData.currentApp = keystrokeTrackingData.lastKnownApp;
+    }
+  }, 1000);
+
+  // Send data to server every 30 seconds
+  keystrokeTrackingInterval = setInterval(uploadKeystrokeTrackingData, 30000);
+}
+if (keystrokeAppCheckInterval) {
+    clearInterval(keystrokeAppCheckInterval);
+    keystrokeAppCheckInterval = null;
+  }
+
+  
+// Stop keystroke tracking
+function stopKeystrokeTracking() {
+  if (!isTrackingKeystrokes) {
+    return;
+  }
+
+  isTrackingKeystrokes = false;
+
+  if (keystrokeTrackingInterval) {
+    clearInterval(keystrokeTrackingInterval);
+    keystrokeTrackingInterval = null;
+  }
+
+  // Upload final data before stopping
+  uploadKeystrokeTrackingData();
+}
+
+// Upload keystroke tracking data to server
+async function uploadKeystrokeTrackingData() {
+  if (!currentUser || !keystrokeTrackingData.sessionId) {
+    return;
+  }
+
+  // Only upload if there's data
+  if (keystrokeTrackingData.keystrokes.length === 0) {
+    console.log('No keystroke data to upload');
+    return;
+  }
+
+  try {
+    console.log(`Uploading ${keystrokeTrackingData.keystrokes.length} keystrokes`);
+    
+    // Calculate app breakdown
+    const appBreakdown = {};
+    keystrokeTrackingData.keystrokes.forEach(keystroke => {
+      const appName = keystroke.appName || 'Unknown';
+      if (!appBreakdown[appName]) {
+        appBreakdown[appName] = 0;
+      }
+      appBreakdown[appName]++;
+    });
+
+    const appBreakdownArray = Object.keys(appBreakdown).map(appName => ({
+      appName,
+      count: appBreakdown[appName]
+    }));
+
+    await axios.post(`${SERVER_URL}/api/keystroke-tracking`, {
+      userId: currentUser.id,
+      deviceId: currentUser.deviceId,
+      username: currentUser.username,
+      sessionId: keystrokeTrackingData.sessionId,
+      keystrokes: keystrokeTrackingData.keystrokes,
+      totalCount: keystrokeTrackingData.keystrokes.length,
+      appBreakdown: appBreakdownArray,
+      screenResolution: keystrokeTrackingData.screenResolution
+    });
+
+    console.log('Keystroke data uploaded successfully');
+    
+    // Clear data after successful upload
+    keystrokeTrackingData.keystrokes = [];
+  } catch (error) {
+    console.error('Error uploading keystroke tracking data:', error);
   }
 }
 
@@ -840,6 +1004,9 @@ async function cleanup() {
   
   // Stop mouse tracking
   stopMouseTracking();
+  
+  // Stop keystroke tracking
+  stopKeystrokeTracking();
 
   // Stop all intervals
   if (streamingInterval) {

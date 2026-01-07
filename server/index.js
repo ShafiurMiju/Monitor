@@ -12,6 +12,7 @@ const Screenshot = require('./models/Screenshot');
 const Settings = require('./models/Settings');
 const MouseTracking = require('./models/MouseTracking');
 const AppUsage = require('./models/AppUsage');
+const Keystroke = require('./models/Keystroke');
 
 const app = express();
 const server = http.createServer(app);
@@ -468,11 +469,23 @@ app.post('/api/mouse-tracking', async (req, res) => {
 app.get('/api/mouse-tracking/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    const { limit = 10, skip = 0, sessionId } = req.query;
+    const { limit = 10, skip = 0, sessionId, startDate, endDate } = req.query;
 
     let query = { userId };
     if (sessionId) {
       query.sessionId = sessionId;
+    }
+
+    if (startDate || endDate) {
+      query.startTime = {};
+      if (startDate) {
+        query.startTime.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        query.startTime.$lte = endDateTime;
+      }
     }
 
     const trackingData = await MouseTracking.find(query)
@@ -489,6 +502,7 @@ app.get('/api/mouse-tracking/:userId', async (req, res) => {
       hasMore: total > (parseInt(skip) + trackingData.length)
     });
   } catch (error) {
+    console.error('Error fetching mouse tracking data:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Failed to fetch mouse tracking data' 
@@ -593,6 +607,207 @@ app.delete('/api/mouse-tracking/cleanup/:days', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Failed to cleanup mouse tracking data' 
+    });
+  }
+});
+
+// ============ Keystroke Tracking API Endpoints ============
+
+// Save keystroke tracking data
+app.post('/api/keystroke-tracking', async (req, res) => {
+  try {
+    const { userId, deviceId, username, sessionId, keystrokes, totalCount, appBreakdown, screenResolution } = req.body;
+
+    if (!userId || !deviceId || !username || !sessionId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+    }
+
+    const keystrokeData = await Keystroke.create({
+      userId,
+      deviceId,
+      username,
+      sessionId,
+      keystrokes: keystrokes || [],
+      totalCount: totalCount || 0,
+      appBreakdown: appBreakdown || [],
+      screenResolution: screenResolution || { width: 0, height: 0 }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Keystroke data saved successfully',
+      data: keystrokeData
+    });
+  } catch (error) {
+    console.error('Error saving keystroke data:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to save keystroke data' 
+    });
+  }
+});
+
+// Get keystroke data for a specific user with pagination and date filtering
+app.get('/api/keystroke-tracking/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20, startDate, endDate } = req.query;
+
+    const query = { userId };
+    
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        // Set to end of day (23:59:59.999)
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = endDateTime;
+      }
+    }
+
+    const keystrokeData = await Keystroke.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+      .lean();
+
+    const total = await Keystroke.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      data: keystrokeData,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching keystroke data:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch keystroke data' 
+    });
+  }
+});
+
+// Get keystroke statistics for a user
+app.get('/api/keystroke-tracking/:userId/stats', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    const matchQuery = { userId: new mongoose.Types.ObjectId(userId) };
+    
+    if (startDate || endDate) {
+      matchQuery.createdAt = {};
+      if (startDate) {
+        matchQuery.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        // Set to end of day (23:59:59.999)
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        matchQuery.createdAt.$lte = endDateTime;
+      }
+    }
+
+    // Get total keystroke count
+    const totalStats = await Keystroke.aggregate([
+      { $match: matchQuery },
+      { $group: {
+        _id: null,
+        totalKeystrokes: { $sum: '$totalCount' },
+        sessionCount: { $sum: 1 }
+      }}
+    ]);
+
+    // Get keystroke count by app
+    const appStats = await Keystroke.aggregate([
+      { $match: matchQuery },
+      { $unwind: '$appBreakdown' },
+      { $group: {
+        _id: '$appBreakdown.appName',
+        totalCount: { $sum: '$appBreakdown.count' }
+      }},
+      { $sort: { totalCount: -1 } },
+      { $limit: 20 }
+    ]);
+
+    // Get keystroke count by date (hourly)
+    const timeSeriesData = await Keystroke.aggregate([
+      { $match: matchQuery },
+      { $unwind: '$keystrokes' },
+      { $group: {
+        _id: {
+          year: { $year: '$keystrokes.timestamp' },
+          month: { $month: '$keystrokes.timestamp' },
+          day: { $dayOfMonth: '$keystrokes.timestamp' },
+          hour: { $hour: '$keystrokes.timestamp' }
+        },
+        count: { $sum: 1 }
+      }},
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, '_id.hour': 1 } }
+    ]);
+
+    // Calculate average keystrokes per session
+    const avgKeystrokesPerSession = totalStats.length > 0 && totalStats[0].sessionCount > 0
+      ? Math.round(totalStats[0].totalKeystrokes / totalStats[0].sessionCount)
+      : 0;
+
+    res.status(200).json({
+      success: true,
+      stats: {
+        totalKeystrokes: totalStats.length > 0 ? totalStats[0].totalKeystrokes : 0,
+        sessionCount: totalStats.length > 0 ? totalStats[0].sessionCount : 0,
+        avgKeystrokesPerSession,
+        appBreakdown: appStats.map(app => ({
+          appName: app._id,
+          count: app.totalCount
+        })),
+        timeSeries: timeSeriesData.map(item => ({
+          timestamp: new Date(item._id.year, item._id.month - 1, item._id.day, item._id.hour),
+          count: item.count
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching keystroke statistics:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch keystroke statistics' 
+    });
+  }
+});
+
+// Delete old keystroke data (cleanup endpoint)
+app.delete('/api/keystroke-tracking/cleanup/:days', async (req, res) => {
+  try {
+    const { days } = req.params;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
+
+    const result = await Keystroke.deleteMany({
+      createdAt: { $lt: cutoffDate }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Deleted ${result.deletedCount} old keystroke tracking sessions`,
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('Error cleaning up keystroke data:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to cleanup keystroke data' 
     });
   }
 });
