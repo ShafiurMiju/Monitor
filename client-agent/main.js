@@ -1,5 +1,5 @@
 // client-agent/main.js
-const { app, BrowserWindow, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, Tray, Menu } = require('electron');
 const { io } = require("socket.io-client");
 const screenshot = require('screenshot-desktop');
 const axios = require('axios');
@@ -31,6 +31,7 @@ if (fs.existsSync(envFile)) {
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:4000';
 let mainWindow = null;
+let tray = null;
 let socket = null;
 let streamingInterval = null;
 let screenshotInterval = null;
@@ -88,10 +89,10 @@ async function getDeviceIdentifier() {
   return cachedDeviceIdentifier;
 }
 
-function createWindow() {
+async function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 450,
-    height: 600,
+    width: 320,
+    height: 400,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -100,9 +101,287 @@ function createWindow() {
 
   mainWindow.loadFile('index.html');
   
+  mainWindow.on('close', (event) => {
+    event.preventDefault();
+    const { dialog } = require('electron');
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'question',
+      buttons: ['Minimize to System', 'Exit Application', 'Cancel'],
+      title: 'Confirm Action',
+      message: 'What would you like to do?',
+      defaultId: 0,
+      cancelId: 2
+    });
+    
+    if (choice === 0) {
+      // Minimize to tray
+      mainWindow.hide();
+    } else if (choice === 1) {
+      // Exit application
+      cleanup();
+      app.quit();
+    }
+    // choice === 2 means cancel, do nothing
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Create system tray
+  createTray();
+
+  // Check if device is already registered
+  await checkDeviceRegistration();
+}
+
+// Check if device is registered and auto-login
+async function checkDeviceRegistration() {
+  try {
+    const deviceId = await getDeviceIdentifier();
+    
+    // Check if device is registered in the server
+    const response = await axios.get(`${SERVER_URL}/api/device/check/${deviceId}`);
+    
+    if (response.data.success && response.data.registered) {
+      // Device is registered, auto-login
+      const userData = response.data.user;
+      currentUser = {
+        id: userData.id || userData.userId,
+        userId: userData.userId || userData.id,
+        deviceId: userData.deviceId,
+        username: userData.username,
+        name: userData.name,
+        email: userData.email,
+        photoUrl: userData.photoUrl,
+        computerName: userData.computerName
+      };
+      
+      // Show dashboard
+      mainWindow.webContents.send('show-dashboard', {
+        name: currentUser.name,
+        email: currentUser.email,
+        photoUrl: currentUser.photoUrl
+      });
+      
+      // Fetch current settings from server
+      try {
+        const settingsResponse = await axios.get(`${SERVER_URL}/api/settings`);
+        if (settingsResponse.data.success) {
+          currentSettings = { ...currentSettings, ...settingsResponse.data.settings };
+          console.log('Loaded settings:', currentSettings);
+        }
+      } catch (error) {
+        console.error('Failed to fetch settings:', error.message);
+      }
+      
+      // Start all tracking
+      startAppTracking();
+      startScreenshotCapture();
+      startMouseTracking();
+      startKeystrokeTracking();
+      
+      // Connect to socket
+      connectSocket();
+    } else {
+      // Device not registered, show login screen
+      mainWindow.webContents.send('show-login');
+    }
+  } catch (error) {
+    console.error('Error checking device registration:', error.message);
+    // Show login screen on error
+    mainWindow.webContents.send('show-login');
+  }
+}
+
+// Connect to socket
+function connectSocket() {
+  if (!socket && currentUser) {
+    socket = io(SERVER_URL);
+
+    socket.on('connect', () => {
+      socket.emit('register', { deviceId: currentUser.deviceId });
+      socket.emit('start_monitoring', { deviceId: currentUser.deviceId });
+      
+      // Notify renderer about connection status
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('status-update', {
+          isOnline: true,
+          screenshotEnabled: currentSettings.screenshotEnabled,
+          screenshotInterval: currentSettings.screenshotInterval,
+          streamingEnabled: currentSettings.streamingEnabled
+        });
+      }
+    });
+
+    socket.on('start_stream', (data) => {
+      startStreamHandler(data);
+    });
+
+    socket.on('stop_stream', () => {
+      if (streamingInterval) {
+        clearInterval(streamingInterval);
+        streamingInterval = null;
+      }
+      currentStreamScreen = 0;
+    });
+
+    socket.on('switch_screen', (data) => {
+      console.log('switch_screen event received:', data);
+      if (data.screenIndex !== undefined) {
+        currentStreamScreen = data.screenIndex;
+        console.log('Updated currentStreamScreen to:', currentStreamScreen);
+      }
+    });
+
+    socket.on('start_screenshot', (data) => {
+      startScreenshotHandler(data);
+    });
+
+    socket.on('stop_screenshot', () => {
+      if (screenshotInterval) {
+        clearInterval(screenshotInterval);
+        screenshotInterval = null;
+      }
+    });
+
+    socket.on('settings_updated', (newSettings) => {
+      handleSettingsUpdate(newSettings);
+    });
+
+    socket.on('disconnect', () => {
+      // Notify renderer about disconnection
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('status-update', {
+          isOnline: false,
+          screenshotEnabled: currentSettings.screenshotEnabled,
+          screenshotInterval: currentSettings.screenshotInterval,
+          streamingEnabled: currentSettings.streamingEnabled
+        });
+      }
+    });
+  }
+}
+
+// Stream handler
+function startStreamHandler(data) {
+  if (!currentSettings.streamingEnabled) {
+    return;
+  }
+
+  if (streamingInterval) {
+    clearInterval(streamingInterval);
+    streamingInterval = null;
+  }
+  
+  // Set the screen index if provided
+  if (data.screenIndex !== undefined) {
+    currentStreamScreen = data.screenIndex;
+  }
+  
+  streamingInterval = setInterval(async () => {
+    try {
+      const displays = screen.getAllDisplays();
+      let imgBuffer;
+      
+      if (currentSettings.doubleScreenEnabled && displays.length > 1) {
+        // Capture specific screen if multiple displays exist
+        const displayIndex = Math.min(currentStreamScreen, displays.length - 1);
+        
+        // Get available screenshot displays
+        const screens = await screenshot.listDisplays();
+        
+        // Use the screen ID from the listDisplays result
+        const targetScreen = screens[displayIndex];
+        imgBuffer = await screenshot({ screen: targetScreen.id, format: 'jpeg' });
+      } else {
+        // Capture primary screen (index 0)
+        imgBuffer = await screenshot({ screen: 0, format: 'jpeg' });
+      }
+      
+      const base64Image = imgBuffer.toString('base64');
+      socket.emit('stream_data', { 
+        image: base64Image, 
+        adminId: data.adminId,
+        screenIndex: currentStreamScreen,
+        totalScreens: displays.length
+      });
+    } catch (error) {
+      console.error('Screenshot error:', error);
+    }
+  }, 1000);
+}
+
+// Screenshot handler
+function startScreenshotHandler(data) {
+  if (!currentSettings.screenshotEnabled) {
+    return;
+  }
+
+  if (screenshotInterval) {
+    clearInterval(screenshotInterval);
+    screenshotInterval = null;
+  }
+
+  const interval = data.interval || currentSettings.screenshotInterval || 6000;
+
+  screenshotInterval = setInterval(async () => {
+    try {
+      const imgBuffer = await screenshot({ format: 'png' });
+      const base64Image = imgBuffer.toString('base64');
+
+      await axios.post(`${SERVER_URL}/api/screenshots`, {
+        userId: currentUser.id,
+        deviceId: currentUser.deviceId,
+        image: base64Image,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Failed to capture screenshot:', error.message);
+    }
+  }, interval);
+}
+
+// Handle settings update
+function handleSettingsUpdate(newSettings) {
+  console.log('Settings updated:', newSettings);
+  
+  const oldSettings = { ...currentSettings };
+  currentSettings = { ...currentSettings, ...newSettings };
+
+  // Handle screenshot interval change
+  if (oldSettings.screenshotInterval !== currentSettings.screenshotInterval) {
+    if (screenshotInterval) {
+      clearInterval(screenshotInterval);
+      screenshotInterval = null;
+      
+      if (currentSettings.screenshotEnabled) {
+        startScreenshotHandler({ interval: currentSettings.screenshotInterval });
+      }
+    }
+  }
+
+  // Handle screenshot enabled/disabled
+  if (oldSettings.screenshotEnabled !== currentSettings.screenshotEnabled) {
+    if (currentSettings.screenshotEnabled) {
+      startScreenshotHandler({ interval: currentSettings.screenshotInterval });
+    } else {
+      if (screenshotInterval) {
+        clearInterval(screenshotInterval);
+        screenshotInterval = null;
+      }
+    }
+  }
+
+  // Notify renderer about settings change
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('status-update', {
+      isOnline: socket && socket.connected,
+      screenshotEnabled: currentSettings.screenshotEnabled,
+      screenshotInterval: currentSettings.screenshotInterval,
+      streamingEnabled: currentSettings.streamingEnabled
+    });
+  }
 }
 
 // Handle signup
@@ -456,13 +735,15 @@ async function captureAndUploadScreenshot() {
     
     // Upload to server
     const response = await axios.post(`${SERVER_URL}/api/screenshots`, {
-      userId: currentUser.id,
+      userId: currentUser.userId || currentUser.id,
       deviceId: currentUser.deviceId,
       username: currentUser.username,
       computerName: currentUser.computerName,
       imageData: `data:image/jpeg;base64,${base64Image}`
     });
+    console.log('✓ Screenshot uploaded successfully');
   } catch (error) {
+    console.error('✗ Failed to upload screenshot:', error.response?.data || error.message);
   }
 }
 
@@ -601,25 +882,129 @@ ipcMain.handle('logout', async (event) => {
       screenshotInterval = null;
     }
 
+    // Stop app tracking
+    stopAppTracking();
+    
+    // Stop mouse tracking
+    stopMouseTracking();
+    
+    // Stop keystroke tracking
+    stopKeystrokeTracking();
+
     // Emit logout event to set user offline
     if (socket && socket.connected) {
       socket.emit('logout', { deviceId });
       socket.disconnect();
     }
 
-    // Update offline status via API
+    // Update offline status via API and unregister device
     try {
-      await axios.post(`${SERVER_URL}/api/logout`, { deviceId });
+      await axios.post(`${SERVER_URL}/api/device/unregister`, { deviceId });
     } catch (error) {
+      console.error('Failed to unregister device:', error.message);
     }
 
     // Clear socket and user
     socket = null;
     currentUser = null;
 
+    // Notify renderer
+    mainWindow.webContents.send('logout-complete');
+
     return { success: true, message: 'Logged out successfully' };
   } catch (error) {
     return { success: false, message: 'Failed to logout' };
+  }
+});
+
+// Handle login with external API credentials
+ipcMain.handle('login-with-credentials', async (event, { email, password }) => {
+  try {
+    // Call the external API
+    const loginResponse = await axios.post('https://server.octopi-digital.com/api/auth/login', {
+      email,
+      password
+    });
+
+    if (loginResponse.status === 200 && loginResponse.data.user) {
+      const userData = loginResponse.data.user;
+      const deviceId = await getDeviceIdentifier();
+      const computerName = os.hostname();
+
+      // Extract name from firstName and lastName
+      const name = `${userData.firstName || ''} ${userData.lastName || ''}`.trim();
+      
+      // Register device in our database
+      const registerResponse = await axios.post(`${SERVER_URL}/api/device/register`, {
+        deviceId,
+        userId: userData._id,
+        email: userData.email,
+        name: name,
+        photoUrl: userData.photoUrl || '',
+        computerName
+      });
+
+      if (registerResponse.data.success) {
+        const userData = registerResponse.data.user;
+        currentUser = {
+          id: userData.id || userData.userId,
+          userId: userData.userId || userData.id,
+          deviceId: userData.deviceId,
+          email: userData.email,
+          username: userData.username,
+          name: userData.name,
+          photoUrl: userData.photoUrl,
+          computerName: userData.computerName
+        };
+
+        // Fetch current settings from server
+        try {
+          const settingsResponse = await axios.get(`${SERVER_URL}/api/settings`);
+          if (settingsResponse.data.success) {
+            currentSettings = { ...currentSettings, ...settingsResponse.data.settings };
+            console.log('Loaded settings:', currentSettings);
+          }
+        } catch (error) {
+          console.error('Failed to fetch settings:', error.message);
+        }
+
+        // Start all tracking
+        startAppTracking();
+        startScreenshotCapture();
+        startMouseTracking();
+        startKeystrokeTracking();
+
+        // Connect to socket
+        connectSocket();
+
+        return {
+          success: true,
+          user: {
+            name: currentUser.name,
+            email: currentUser.email,
+            photoUrl: currentUser.photoUrl
+          }
+        };
+      } else {
+        return { success: false, message: 'Failed to register device' };
+      }
+    } else {
+      return { success: false, message: 'Wrong credentials' };
+    }
+  } catch (error) {
+    console.error('Login error:', error.response?.data || error.message);
+    if (error.response?.status === 401 || error.response?.status === 400) {
+      return { success: false, message: 'Wrong credentials' };
+    }
+    return { success: false, message: 'Login failed. Please try again.' };
+  }
+});
+
+// Handle window resize
+ipcMain.on('resize-window', (event, { width, height }) => {
+  if (mainWindow) {
+    mainWindow.setSize(width, height);
+    mainWindow.center();
   }
 });
 
@@ -775,7 +1160,7 @@ async function uploadMouseTrackingData() {
 
   try {
     await axios.post(`${SERVER_URL}/api/mouse-tracking`, {
-      userId: currentUser.id,
+      userId: currentUser.userId || currentUser.id,
       deviceId: currentUser.deviceId,
       username: currentUser.username,
       sessionId: mouseTrackingData.sessionId,
@@ -785,11 +1170,13 @@ async function uploadMouseTrackingData() {
       screenResolution: mouseTrackingData.screenResolution
     });
 
+    console.log('✓ Mouse tracking data uploaded successfully');
     // Clear data after successful upload
     mouseTrackingData.movements = [];
     mouseTrackingData.clicks = [];
     mouseTrackingData.scrolls = [];
   } catch (error) {
+    console.error('✗ Failed to upload mouse tracking data:', error.response?.data || error.message);
   }
 }
 
@@ -905,7 +1292,7 @@ async function uploadKeystrokeTrackingData() {
     }));
 
     await axios.post(`${SERVER_URL}/api/keystroke-tracking`, {
-      userId: currentUser.id,
+      userId: currentUser.userId || currentUser.id,
       deviceId: currentUser.deviceId,
       username: currentUser.username,
       sessionId: keystrokeTrackingData.sessionId,
@@ -915,7 +1302,7 @@ async function uploadKeystrokeTrackingData() {
       screenResolution: keystrokeTrackingData.screenResolution
     });
 
-    console.log('Keystroke data uploaded successfully');
+    console.log('✓ Keystroke data uploaded successfully');
     
     // Clear data after successful upload
     keystrokeTrackingData.keystrokes = [];
@@ -1151,29 +1538,92 @@ async function cleanup() {
     screenshotInterval = null;
   }
 
-  // Set user offline
+  // Set user offline and unregister device
   if (currentUser && socket && socket.connected) {
     socket.emit('logout', { deviceId: currentUser.deviceId });
     
-    // Also update via API
+    // Unregister device from the database
     try {
-      await axios.post(`${SERVER_URL}/api/logout`, { 
+      await axios.post(`${SERVER_URL}/api/device/unregister`, { 
         deviceId: currentUser.deviceId 
       });
+      console.log('Device unregistered successfully');
     } catch (error) {
+      console.error('Failed to unregister device:', error.message);
     }
     
     socket.disconnect();
   }
 }
 
+// Create system tray
+function createTray() {
+  const { nativeImage } = require('electron');
+  
+  // Try to use icon from build folder
+  const iconPath = path.join(__dirname, 'build', 'icon.png');
+  let trayIcon;
+  
+  if (fs.existsSync(iconPath)) {
+    trayIcon = nativeImage.createFromPath(iconPath);
+  } else {
+    // Create a simple 16x16 placeholder icon
+    trayIcon = nativeImage.createEmpty();
+  }
+  
+  tray = new Tray(trayIcon);
+  
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show ODL Portal',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    },
+    {
+      label: 'Hide ODL Portal',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.hide();
+        }
+      }
+    },
+    {
+      type: 'separator'
+    },
+    {
+      label: 'Exit',
+      click: async () => {
+        await cleanup();
+        app.quit();
+      }
+    }
+  ]);
+  
+  tray.setToolTip('ODL Portal');
+  tray.setContextMenu(contextMenu);
+  
+  // Double click to show/hide window
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
+}
+
 app.whenReady().then(createWindow);
 
-app.on('window-all-closed', async () => {
-  await cleanup();
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+app.on('window-all-closed', () => {
+  // Don't quit the app when all windows are closed (keep running in tray)
+  // User must explicitly exit from tray menu
 });
 
 app.on('before-quit', async (event) => {

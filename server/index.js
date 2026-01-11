@@ -228,6 +228,157 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Device Registration Routes
+
+// Check if device is registered
+app.get('/api/device/check/:deviceId', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    const user = await User.findOne({ deviceId });
+
+    if (user) {
+      // Update last seen
+      user.lastSeen = new Date();
+      user.isOnline = true;
+      await user.save();
+
+      res.json({
+        success: true,
+        registered: true,
+        user: {
+          id: user._id.toString(),
+          userId: user._id.toString(),
+          deviceId: user.deviceId,
+          username: user.username,
+          name: user.name || user.username,
+          email: user.email,
+          photoUrl: user.photoUrl,
+          computerName: user.computerName
+        }
+      });
+    } else {
+      res.json({
+        success: true,
+        registered: false
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error checking device registration',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Register device
+app.post('/api/device/register', async (req, res) => {
+  try {
+    const { deviceId, userId, email, name, photoUrl, computerName } = req.body;
+
+    // Validate required fields
+    if (!deviceId || !userId || !email || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'deviceId, userId, email, and name are required'
+      });
+    }
+
+    // Check if user already exists with this device
+    let user = await User.findOne({ deviceId });
+
+    if (user) {
+      // Update existing user
+      user.externalUserId = userId;
+      user.email = email;
+      user.name = name;
+      user.username = name; // Use name as username
+      user.photoUrl = photoUrl || '';
+      user.computerName = computerName || '';
+      user.isExternalUser = true;
+      user.isOnline = true;
+      user.lastSeen = new Date();
+      await user.save();
+    } else {
+      // Create new user
+      user = new User({
+        deviceId,
+        externalUserId: userId,
+        email,
+        name,
+        username: name,
+        photoUrl: photoUrl || '',
+        computerName: computerName || '',
+        isExternalUser: true,
+        isOnline: true,
+        lastSeen: new Date()
+      });
+      await user.save();
+    }
+
+    res.json({
+      success: true,
+      message: 'Device registered successfully',
+      user: {
+        id: user._id.toString(),
+        userId: user._id.toString(),
+        deviceId: user.deviceId,
+        username: user.username,
+        name: user.name,
+        email: user.email,
+        photoUrl: user.photoUrl,
+        computerName: user.computerName
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error registering device',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Unregister device (logout)
+app.post('/api/device/unregister', async (req, res) => {
+  try {
+    const { deviceId } = req.body;
+
+    if (!deviceId) {
+      return res.status(400).json({
+        success: false,
+        message: 'deviceId is required'
+      });
+    }
+
+    const user = await User.findOne({ deviceId });
+
+    if (user) {
+      user.isOnline = false;
+      user.isStreaming = false;
+      user.lastSeen = new Date();
+      await user.save();
+      
+      // Optionally delete external users completely on logout
+      // if (user.isExternalUser) {
+      //   await User.deleteOne({ deviceId });
+      // }
+    }
+
+    res.json({
+      success: true,
+      message: 'Device unregistered successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error unregistering device',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
 // Logout Route
 app.post('/api/logout', async (req, res) => {
   try {
@@ -291,6 +442,55 @@ app.get('/api/users/:id', async (req, res) => {
     res.status(200).json({ success: true, user });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Update user
+app.put('/api/users/:id', async (req, res) => {
+  try {
+    const { username, email, computerName } = req.body;
+    
+    const updateData = {};
+    if (username) updateData.username = username;
+    if (email) updateData.email = email;
+    if (computerName) updateData.computerName = computerName;
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, select: '-password' }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.status(200).json({ success: true, message: 'User updated successfully', user });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+});
+
+// Delete user
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Also delete all related data
+    await Promise.all([
+      Screenshot.deleteMany({ userId: req.params.id }),
+      AppUsage.deleteMany({ userId: req.params.id }),
+      MouseTracking.deleteMany({ userId: req.params.id }),
+      Keystroke.deleteMany({ userId: req.params.id })
+    ]);
+
+    res.status(200).json({ success: true, message: 'User and all related data deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 });
 
