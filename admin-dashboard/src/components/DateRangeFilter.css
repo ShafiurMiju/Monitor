@@ -1,0 +1,146 @@
+/* DateRangeFilter.css */
+
+.date-range-filter {
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.quick-filter-btn {
+  padding: 8px 16px;
+  border: 2px solid #e0e0e0;
+  background: white;
+  color: #333;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.quick-filter-btn:hover {
+  border-color: #667eea;
+  background: #f0f4ff;
+  transform: translateY(-1px);
+}
+
+.quick-filter-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: #667eea;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.custom-range-inputs {
+  margin-top: 15px;
+  padding: 15px;
+  background: white;
+  border-radius: 8px;
+  border: 2px solid #e0e0e0;
+}
+
+.input-row {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.date-input-group,
+.time-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 150px;
+}
+
+.date-input-group label,
+.time-input-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #555;
+}
+
+.date-input-group input,
+.time-input-group input {
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.date-input-group input:focus,
+.time-input-group input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.custom-range-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+.apply-btn,
+.clear-btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.apply-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.apply-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.clear-btn {
+  background: #e0e0e0;
+  color: #555;
+}
+
+.clear-btn:hover {
+  background: #d0d0d0;
+  transform: translateY(-2px);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .quick-filters {
+    flex-direction: column;
+  }
+  
+  .quick-filter-btn {
+    width: 100%;
+  }
+  
+  .input-row {
+    flex-direction: column;
+  }
+  
+  .date-input-group,
+  .time-input-group {
+    min-width: 100%;
+  }
+}

@@ -5,19 +5,17 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String,
     required: true,
-    unique: true,
     trim: true
   },
   email: {
     type: String,
     required: true,
-    unique: true,
     trim: true,
     lowercase: true
   },
   password: {
     type: String,
-    required: true
+    required: false // Not required for external API users
   },
   deviceId: {
     type: String,
@@ -27,6 +25,23 @@ const userSchema = new mongoose.Schema({
   computerName: {
     type: String,
     default: ''
+  },
+  // Fields from external API
+  externalUserId: {
+    type: String,
+    default: null // ID from Octopi Digital API
+  },
+  name: {
+    type: String,
+    default: '' // Full name from external API
+  },
+  photoUrl: {
+    type: String,
+    default: ''
+  },
+  isExternalUser: {
+    type: Boolean,
+    default: false // True if user logged in via external API
   },
   isOnline: {
     type: Boolean,
@@ -46,9 +61,9 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Hash password before saving
+// Hash password before saving (only if password exists)
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) {
+  if (!this.password || !this.isModified('password')) {
     return next();
   }
   
@@ -59,6 +74,9 @@ userSchema.pre('save', async function(next) {
 
 // Method to compare password
 userSchema.methods.comparePassword = async function(enteredPassword) {
+  if (!this.password) {
+    return false;
+  }
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
