@@ -44,6 +44,9 @@ function UserDetails() {
   const [connectionStatus, setConnectionStatus] = useState('idle');
   const [showStreamModal, setShowStreamModal] = useState(false);
   const [streamingEnabled, setStreamingEnabled] = useState(true);
+  const [doubleScreenEnabled, setDoubleScreenEnabled] = useState(false);
+  const [currentScreen, setCurrentScreen] = useState(0);
+  const [totalScreens, setTotalScreens] = useState(1);
   const streamContainerRef = useRef(null);
   const [summaryData, setSummaryData] = useState({
     mouse: [],
@@ -160,6 +163,7 @@ function UserDetails() {
         const response = await axios.get(`${SERVER_URL}/api/settings`);
         if (response.data.success) {
           setStreamingEnabled(response.data.settings.streamingEnabled);
+          setDoubleScreenEnabled(response.data.settings.doubleScreenEnabled || false);
         }
       } catch (error) {
         console.error('Error fetching settings:', error);
@@ -172,6 +176,12 @@ function UserDetails() {
     socket.on('new_frame', (data) => {
       setLiveImage(`data:image/jpeg;base64,${data.image}`);
       setConnectionStatus('streaming');
+      if (data.totalScreens !== undefined) {
+        setTotalScreens(data.totalScreens);
+      }
+      if (data.screenIndex !== undefined) {
+        setCurrentScreen(data.screenIndex);
+      }
     });
 
     socket.on('stream_error', (data) => {
@@ -210,6 +220,16 @@ function UserDetails() {
     setLiveImage('');
     setConnectionStatus('idle');
     setShowStreamModal(false);
+    setCurrentScreen(0);
+    setTotalScreens(1);
+  };
+
+  const switchScreen = (screenIndex) => {
+    setCurrentScreen(screenIndex);
+    socket.emit('request_switch_screen', { 
+      targetDeviceId: user.deviceId,
+      screenIndex: screenIndex 
+    });
   };
 
   // Prepare combined chart data for all activities
@@ -725,6 +745,57 @@ function UserDetails() {
                   <span className="text-sm text-gray-600">
                     Machine: <span className="font-medium text-gray-900">{user.machineName || 'Unknown'}</span>
                   </span>
+                  
+                  {/* Screen Info and Switcher - Only show if double screen is enabled */}
+                  {doubleScreenEnabled && (
+                    <div className="flex items-center space-x-3 px-4 py-2 bg-gray-100 rounded-lg border border-gray-200">
+                      {totalScreens > 1 ? (
+                        <>
+                          <div className="flex items-center space-x-2">
+                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-sm font-medium text-gray-900">
+                              {totalScreens} Screens Available
+                            </span>
+                          </div>
+                          <div className="h-4 w-px bg-gray-300"></div>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-xs text-gray-600">Viewing:</span>
+                            {[...Array(totalScreens)].map((_, index) => (
+                              <button
+                                key={index}
+                                onClick={() => switchScreen(index)}
+                                className={`px-3 py-1.5 rounded-lg font-medium transition-all text-sm inline-flex items-center space-x-1 ${
+                                  currentScreen === index
+                                    ? 'bg-primary text-white shadow-md'
+                                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                                }`}
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                                <span>Screen {index + 1}</span>
+                                {currentScreen === index && (
+                                  <span className="flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-white opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center space-x-2">
+                          <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                          <span className="text-sm text-gray-700">Single Screen Detected</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={stopStream}

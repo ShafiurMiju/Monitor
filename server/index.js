@@ -1098,7 +1098,7 @@ app.get('/api/settings', async (req, res) => {
 // Update settings
 app.put('/api/settings', async (req, res) => {
   try {
-    const { screenshotEnabled, screenshotInterval, streamingEnabled } = req.body;
+    const { screenshotEnabled, screenshotInterval, streamingEnabled, doubleScreenEnabled } = req.body;
     
     const updates = {};
     if (typeof screenshotEnabled === 'boolean') updates.screenshotEnabled = screenshotEnabled;
@@ -1114,6 +1114,7 @@ app.put('/api/settings', async (req, res) => {
       }
     }
     if (typeof streamingEnabled === 'boolean') updates.streamingEnabled = streamingEnabled;
+    if (typeof doubleScreenEnabled === 'boolean') updates.doubleScreenEnabled = doubleScreenEnabled;
 
     const settings = await Settings.updateSettings(updates);
     
@@ -1121,7 +1122,8 @@ app.put('/api/settings', async (req, res) => {
     io.emit('settings_updated', {
       screenshotEnabled: settings.screenshotEnabled,
       screenshotInterval: settings.screenshotInterval,
-      streamingEnabled: settings.streamingEnabled
+      streamingEnabled: settings.streamingEnabled,
+      doubleScreenEnabled: settings.doubleScreenEnabled
     });
 
     res.status(200).json({
@@ -1281,9 +1283,23 @@ io.on('connection', (socket) => {
     adminViewingTargets.delete(socket.id);
   });
 
+  // Handle screen switching request from admin
+  socket.on('request_switch_screen', (data) => {
+    const targetSocketId = connectedClients.get(data.targetDeviceId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('switch_screen', { 
+        screenIndex: data.screenIndex 
+      });
+    }
+  });
+
   // When the client agent sends an image, we forward it to the admin
   socket.on('stream_data', (data) => {
-    io.to(data.adminId).emit('new_frame', { image: data.image });
+    io.to(data.adminId).emit('new_frame', { 
+      image: data.image,
+      screenIndex: data.screenIndex,
+      totalScreens: data.totalScreens
+    });
   });
 
   // Handle disconnections

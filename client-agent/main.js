@@ -36,10 +36,12 @@ let streamingInterval = null;
 let screenshotInterval = null;
 let currentUser = null;
 let cachedDeviceIdentifier = null;
+let currentStreamScreen = 0; // Track which screen is being streamed
 let currentSettings = {
   screenshotEnabled: true,
   screenshotInterval: 6000,
-  streamingEnabled: true
+  streamingEnabled: true,
+  doubleScreenEnabled: false
 };
 let mouseTrackingData = {
   sessionId: null,
@@ -118,6 +120,17 @@ ipcMain.handle('signup', async (event, data) => {
     if (response.data.success) {
       currentUser = response.data.user;
       
+      // Fetch current settings from server
+      try {
+        const settingsResponse = await axios.get(`${SERVER_URL}/api/settings`);
+        if (settingsResponse.data.success) {
+          currentSettings = { ...currentSettings, ...settingsResponse.data.settings };
+          console.log('Loaded settings:', currentSettings);
+        }
+      } catch (error) {
+        console.error('Failed to fetch settings:', error.message);
+      }
+      
       // Start app tracking
       startAppTracking();
       
@@ -147,15 +160,51 @@ ipcMain.handle('signup', async (event, data) => {
             streamingInterval = null;
           }
           
+          // Set the screen index if provided
+          if (data.screenIndex !== undefined) {
+            currentStreamScreen = data.screenIndex;
+          }
+          
           let frameCount = 0;
           
           streamingInterval = setInterval(async () => {
             try {
-              const imgBuffer = await screenshot({ format: 'jpeg' });
+              const displays = screen.getAllDisplays();
+              let imgBuffer;
+              
+              if (currentSettings.doubleScreenEnabled && displays.length > 1) {
+                // Capture specific screen if multiple displays exist
+                const displayIndex = Math.min(currentStreamScreen, displays.length - 1);
+                if (frameCount % 10 === 0) { // Log every 10th frame to avoid spam
+                  console.log(`[Signup Stream] Capturing screen ${displayIndex} (currentStreamScreen: ${currentStreamScreen}, total displays: ${displays.length})`);
+                }
+                
+                // Try using all available options for the screenshot library
+                try {
+                  imgBuffer = await screenshot({ format: 'jpeg' }).then(async () => {
+                    const screens = await screenshot.listDisplays();
+                    return await screenshot({ screen: screens[displayIndex], format: 'jpeg' });
+                  }).catch(async (err) => {
+                    return await screenshot({ screen: displayIndex, format: 'jpeg' });
+                  });
+                } catch (err) {
+                  imgBuffer = await screenshot({ screen: displays[displayIndex].id, format: 'jpeg' });
+                }
+              } else {
+                // Capture primary screen (index 0)
+                imgBuffer = await screenshot({ screen: 0, format: 'jpeg' });
+              }
+              
               const base64Image = imgBuffer.toString('base64');
               frameCount++;
-              socket.emit('stream_data', { image: base64Image, adminId: data.adminId });
+              socket.emit('stream_data', { 
+                image: base64Image, 
+                adminId: data.adminId,
+                screenIndex: currentStreamScreen,
+                totalScreens: displays.length
+              });
             } catch (error) {
+              console.error('Screenshot error:', error);
             }
           }, 1000);
         });
@@ -164,6 +213,15 @@ ipcMain.handle('signup', async (event, data) => {
           if (streamingInterval) {
             clearInterval(streamingInterval);
             streamingInterval = null;
+          }
+          currentStreamScreen = 0; // Reset to primary screen
+        });
+
+        socket.on('switch_screen', (data) => {
+          console.log('switch_screen event received:', data);
+          if (data.screenIndex !== undefined) {
+            currentStreamScreen = data.screenIndex;
+            console.log('Updated currentStreamScreen to:', currentStreamScreen);
           }
         });
 
@@ -227,6 +285,17 @@ ipcMain.handle('login', async (event, data) => {
     if (response.data.success) {
       currentUser = response.data.user;
       
+      // Fetch current settings from server
+      try {
+        const settingsResponse = await axios.get(`${SERVER_URL}/api/settings`);
+        if (settingsResponse.data.success) {
+          currentSettings = { ...currentSettings, ...settingsResponse.data.settings };
+          console.log('Loaded settings:', currentSettings);
+        }
+      } catch (error) {
+        console.error('Failed to fetch settings:', error.message);
+      }
+      
       // Connect to socket immediately after login to set user as online
       if (!socket) {
         socket = io(SERVER_URL);
@@ -257,15 +326,50 @@ ipcMain.handle('login', async (event, data) => {
             streamingInterval = null;
           }
           
+          // Set the screen index if provided
+          if (data.screenIndex !== undefined) {
+            currentStreamScreen = data.screenIndex;
+          }
+          
           let frameCount = 0;
           
           streamingInterval = setInterval(async () => {
             try {
-              const imgBuffer = await screenshot({ format: 'jpeg' });
+              const displays = screen.getAllDisplays();
+              let imgBuffer;
+              
+              // Debug logging every frame to understand the issue
+              console.log(`[Stream Debug] doubleScreenEnabled: ${currentSettings.doubleScreenEnabled}, displays: ${displays.length}, currentStreamScreen: ${currentStreamScreen}`);
+              
+              if (currentSettings.doubleScreenEnabled && displays.length > 1) {
+                // Capture specific screen if multiple displays exist
+                const displayIndex = Math.min(currentStreamScreen, displays.length - 1);
+                console.log(`[Login Stream] Capturing screen ${displayIndex}`);
+                
+                // Get available screenshot displays
+                const screens = await screenshot.listDisplays();
+                console.log('Available screenshot screens:', screens);
+                
+                // Use the screen ID from the listDisplays result
+                const targetScreen = screens[displayIndex];
+                console.log(`Using screen ID: ${targetScreen.id}`);
+                imgBuffer = await screenshot({ screen: targetScreen.id, format: 'jpeg' });
+              } else {
+                console.log(`[Login Stream] Capturing primary screen (doubleScreen: ${currentSettings.doubleScreenEnabled}, displays: ${displays.length})`);
+                // Capture primary screen (index 0)
+                imgBuffer = await screenshot({ screen: 0, format: 'jpeg' });
+              }
+              
               const base64Image = imgBuffer.toString('base64');
               frameCount++;
-              socket.emit('stream_data', { image: base64Image, adminId: data.adminId });
+              socket.emit('stream_data', { 
+                image: base64Image, 
+                adminId: data.adminId,
+                screenIndex: currentStreamScreen,
+                totalScreens: displays.length
+              });
             } catch (error) {
+              console.error('Screenshot error:', error);
             }
           }, 1000);
         });
@@ -274,6 +378,15 @@ ipcMain.handle('login', async (event, data) => {
           if (streamingInterval) {
             clearInterval(streamingInterval);
             streamingInterval = null;
+          }
+          currentStreamScreen = 0; // Reset to primary screen
+        });
+
+        socket.on('switch_screen', (data) => {
+          console.log('switch_screen event received (login):', data);
+          if (data.screenIndex !== undefined) {
+            currentStreamScreen = data.screenIndex;
+            console.log('Updated currentStreamScreen to:', currentStreamScreen);
           }
         });
 
@@ -401,7 +514,8 @@ function handleSettingsUpdate(settings) {
       isOnline: socket && socket.connected,
       screenshotEnabled: currentSettings.screenshotEnabled,
       screenshotInterval: currentSettings.screenshotInterval,
-      streamingEnabled: currentSettings.streamingEnabled
+      streamingEnabled: currentSettings.streamingEnabled,
+      doubleScreenEnabled: currentSettings.doubleScreenEnabled
     });
   }
 }
@@ -816,13 +930,27 @@ async function uploadKeystrokeTrackingData() {
 async function getActiveWindow() {
   try {
     const scriptPath = path.join(__dirname, 'get-active-window.ps1');
-    const { stdout } = await execPromise(
-      `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`,
-      { timeout: 3000 }
+    
+    // Check if the script file exists
+    if (!fs.existsSync(scriptPath)) {
+      console.error('PowerShell script not found at:', scriptPath);
+      return null;
+    }
+    
+    const { stdout, stderr } = await execPromise(
+      `powershell -NoProfile -ExecutionPolicy Bypass -Command "& '${scriptPath}'"`,
+      { timeout: 5000 }
     );
     
+    if (stderr && stderr.trim()) {
+      console.error('PowerShell stderr:', stderr);
+    }
+    
     const output = stdout.trim();
-    if (!output) return null;
+    if (!output) {
+      console.warn('Empty output from PowerShell script');
+      return null;
+    }
     
     const result = JSON.parse(output);
     
@@ -835,7 +963,11 @@ async function getActiveWindow() {
     return null;
   } catch (error) {
     console.error('Error getting active window:', error.message);
-    return null;
+    // Return a fallback value instead of null to keep tracking working
+    return {
+      owner: { name: 'Unknown' },
+      title: ''
+    };
   }
 }
 

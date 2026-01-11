@@ -10,7 +10,8 @@ function SettingsPage() {
   const [settings, setSettings] = useState({
     screenshotEnabled: true,
     screenshotInterval: 6000,
-    streamingEnabled: true
+    streamingEnabled: true,
+    doubleScreenEnabled: false
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -238,23 +239,44 @@ function SettingsPage() {
               Streaming Settings
             </h2>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-gray-900 font-medium mb-1">Enable Live Streaming</h3>
-                <p className="text-gray-600 text-sm">Allow real-time screen streaming from client agents</p>
-              </div>
-              <button
-                onClick={() => setSettings({ ...settings, streamingEnabled: !settings.streamingEnabled })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  settings.streamingEnabled ? 'bg-primary' : 'bg-gray-400'
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    settings.streamingEnabled ? 'translate-x-6' : 'translate-x-1'
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-gray-900 font-medium mb-1">Enable Live Streaming</h3>
+                  <p className="text-gray-600 text-sm">Allow real-time screen streaming from client agents</p>
+                </div>
+                <button
+                  onClick={() => setSettings({ ...settings, streamingEnabled: !settings.streamingEnabled })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    settings.streamingEnabled ? 'bg-primary' : 'bg-gray-400'
                   }`}
-                />
-              </button>
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      settings.streamingEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-gray-900 font-medium mb-1">Enable Double Screen Support</h3>
+                  <p className="text-gray-600 text-sm">Allow users to switch between multiple monitors during streaming</p>
+                </div>
+                <button
+                  onClick={() => setSettings({ ...settings, doubleScreenEnabled: !settings.doubleScreenEnabled })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    settings.doubleScreenEnabled ? 'bg-primary' : 'bg-gray-400'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      settings.doubleScreenEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 

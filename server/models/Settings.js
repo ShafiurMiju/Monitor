@@ -19,6 +19,12 @@ const settingsSchema = new mongoose.Schema({
     default: true
   },
   
+  // Double screen settings
+  doubleScreenEnabled: {
+    type: Boolean,
+    default: false
+  },
+  
   // System settings
   lastUpdated: {
     type: Date,
