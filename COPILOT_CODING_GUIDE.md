@@ -181,7 +181,7 @@ admin-dashboard/
    
    useEffect(() => {
      // Connect
-     socketRef.current = io('http://localhost:4000');
+     socketRef.current = io('http://103.130.11.114:3001');
      
      // Event listeners
      socketRef.current.on('event_name', (data) => {
@@ -208,7 +208,7 @@ admin-dashboard/
    ```jsx
    const fetchData = async () => {
      try {
-       const response = await axios.get('http://localhost:4000/api/endpoint');
+       const response = await axios.get('http://103.130.11.114:3001/api/endpoint');
        setData(response.data);
      } catch (error) {
        console.error('Error fetching data:', error);
@@ -296,7 +296,7 @@ client-agent/
 
 2. **Socket.IO in Electron**
    ```javascript
-   const socket = io('http://localhost:4000');
+   const socket = io('http://103.130.11.114:3001');
    
    socket.on('connect', () => {
      console.log('Connected to server');
@@ -587,7 +587,7 @@ useEffect(() => {
 
 2. **Constants after imports**
    ```javascript
-   const PORT = 4000;
+   const PORT = 3001;
    const JWT_SECRET = process.env.JWT_SECRET;
    ```
 
@@ -667,7 +667,7 @@ socket.on('new_frame', (data) => {
 
 ### **Server (.env file)**
 ```env
-PORT=4000
+PORT=3001
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/dbname
 JWT_SECRET=your-super-secret-key-change-in-production
 NODE_ENV=development
@@ -677,7 +677,7 @@ NODE_ENV=development
 ```javascript
 require('dotenv').config();
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret';
 ```
 

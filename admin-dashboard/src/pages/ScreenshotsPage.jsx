@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://103.130.11.114:3001";
 
 function ScreenshotsPage() {
   const { userId } = useParams();

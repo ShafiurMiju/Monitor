@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import './Screenshots.css';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://103.130.11.114:3001";
 
 function Screenshots({ user, onClose }) {
   const [screenshots, setScreenshots] = useState([]);
@@ -114,6 +114,11 @@ function Screenshots({ user, onClose }) {
                       <span className="screenshot-time">
                         {formatDate(screenshot.timestamp)}
                       </span>
+                      {screenshot.totalScreens > 1 && (
+                        <span className="screen-badge">
+                          Screen {(screenshot.screenIndex || 0) + 1}/{screenshot.totalScreens}
+                        </span>
+                      )}
                     </div>
                     <div className="screenshot-info">
                       <p className="screenshot-device">{screenshot.computerName}</p>
@@ -145,6 +150,11 @@ function Screenshots({ user, onClose }) {
               <div className="viewer-info">
                 <h3>{user.username}</h3>
                 <p>{formatDate(selectedScreenshot.timestamp)}</p>
+                {selectedScreenshot.totalScreens > 1 && (
+                  <p className="screen-info">
+                    Screen {(selectedScreenshot.screenIndex || 0) + 1} of {selectedScreenshot.totalScreens}
+                  </p>
+                )}
               </div>
               <div className="viewer-actions">
                 {viewingImage && (

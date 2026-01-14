@@ -25,7 +25,7 @@ ChartJS.register(
   Legend
 );
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://103.130.11.114:3001";
 
 const socket = io(SERVER_URL, {
   transports: ['websocket', 'polling'],
@@ -481,11 +481,13 @@ function UserDetails() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-600 mb-1">Machine Name</p>
-                  <p className="text-gray-900">{user.machineName || 'Unknown'}</p>
+                  <p className="text-gray-900">{user.computerName || 'Unknown'}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-600 mb-1">Device ID</p>
-                  <p className="text-gray-900 font-mono text-xs break-all">{user.deviceId}</p>
+                  <p className="text-gray-900 font-mono text-xs truncate" title={user.deviceId}>
+                    {user.deviceId ? `${user.deviceId.substring(0, 40)}...` : 'N/A'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-600 mb-1">Status</p>
@@ -743,7 +745,7 @@ function UserDetails() {
               <div className="mt-4 flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                   <span className="text-sm text-gray-600">
-                    Machine: <span className="font-medium text-gray-900">{user.machineName || 'Unknown'}</span>
+                    Machine: <span className="font-medium text-gray-900">{user.computerName || 'Unknown'}</span>
                   </span>
                   
                   {/* Screen Info and Switcher - Only show if double screen is enabled */}

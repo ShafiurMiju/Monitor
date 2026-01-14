@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://103.130.11.114:3001";
 
 function SettingsPage() {
   const navigate = useNavigate();
@@ -262,7 +262,7 @@ function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-gray-900 font-medium mb-1">Enable Double Screen Support</h3>
-                  <p className="text-gray-600 text-sm">Allow users to switch between multiple monitors during streaming</p>
+                  <p className="text-gray-600 text-sm">Allow users to switch between multiple monitors during streaming and take screenshots from each screen</p>
                 </div>
                 <button
                   onClick={() => setSettings({ ...settings, doubleScreenEnabled: !settings.doubleScreenEnabled })}

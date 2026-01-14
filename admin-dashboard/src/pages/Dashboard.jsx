@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { io } from "socket.io-client";
 import axios from 'axios';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://103.130.11.114:3001";
 
 const socket = io(SERVER_URL, {
   transports: ['websocket', 'polling'],
@@ -20,7 +20,8 @@ function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [editingUser, setEditingUser] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editFormData, setEditFormData] = useState({ username: '', email: '', computerName: '' });
+  const [editFormData, setEditFormData] = useState({ username: '', email: '', computerName: '', screenShowEnabled: true });
+  const [globalSettings, setGlobalSettings] = useState({ screenshotEnabled: true });
 
   const fetchUsers = async () => {
     try {
@@ -57,7 +58,8 @@ function Dashboard() {
     setEditFormData({
       username: user.username || '',
       email: user.email || '',
-      computerName: user.computerName || ''
+      computerName: user.computerName || '',
+      screenShowEnabled: user.screenShowEnabled !== undefined ? user.screenShowEnabled : true
     });
     setShowEditModal(true);
   };
@@ -66,7 +68,6 @@ function Dashboard() {
     try {
       const response = await axios.put(`${SERVER_URL}/api/users/${editingUser._id}`, editFormData);
       if (response.data.success) {
-        alert('User updated successfully');
         setShowEditModal(false);
         setEditingUser(null);
         fetchUsers();
@@ -79,6 +80,7 @@ function Dashboard() {
 
   useEffect(() => {
     fetchUsers();
+    fetchGlobalSettings();
 
     socket.on('user_status_changed', () => {
       fetchUsers();
@@ -89,10 +91,21 @@ function Dashboard() {
     };
   }, []);
 
+  const fetchGlobalSettings = async () => {
+    try {
+      const response = await axios.get(`${SERVER_URL}/api/settings`);
+      if (response.data.success) {
+        setGlobalSettings(response.data.settings);
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+    }
+  };
+
   const filteredUsers = users.filter(user =>
     user.username?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.machineName?.toLowerCase().includes(searchQuery.toLowerCase())
+    user.computerName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const onlineUsers = filteredUsers.filter(u => u.isOnline);
@@ -242,7 +255,7 @@ function Dashboard() {
                           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                           </svg>
-                          {user.machineName || 'Unknown Machine'}
+                          {user.computerName || 'Unknown Machine'}
                         </div>
                         <div className="flex items-center text-gray-600">
                           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -328,7 +341,7 @@ function Dashboard() {
                           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                           </svg>
-                          {user.machineName || 'Unknown Machine'}
+                          {user.computerName || 'Unknown Machine'}
                         </div>
                         <div className="flex items-center text-gray-600">
                           <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -422,6 +435,58 @@ function Dashboard() {
                   onChange={(e) => setEditFormData({ ...editFormData, computerName: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+              </div>
+              
+              <div>
+                <label className="flex items-center justify-between cursor-pointer p-4 border-2 border-gray-200 rounded-xl hover:border-primary/30 hover:bg-gray-50 transition-all">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${editFormData.screenShowEnabled ? 'bg-primary/10' : 'bg-gray-100'}`}>
+                      <svg className={`w-5 h-5 ${editFormData.screenShowEnabled ? 'text-primary' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <span className="block text-sm font-semibold text-gray-900">Enable Screenshots</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">Allow screenshot capture for this user</span>
+                    </div>
+                  </div>
+                  <div className="relative flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={editFormData.screenShowEnabled}
+                      onChange={(e) => setEditFormData({ ...editFormData, screenShowEnabled: e.target.checked })}
+                      className="sr-only"
+                    />
+                    <div className={`w-14 h-7 rounded-full transition-all duration-300 ease-in-out ${editFormData.screenShowEnabled ? 'bg-primary shadow-lg shadow-primary/30' : 'bg-gray-300'}`}>
+                      <div className={`w-6 h-6 bg-white rounded-full shadow-md transform transition-all duration-300 ease-in-out ${editFormData.screenShowEnabled ? 'translate-x-7' : 'translate-x-0.5'} mt-0.5 flex items-center justify-center`}>
+                        {editFormData.screenShowEnabled ? (
+                          <svg className="w-3 h-3 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </label>
+                
+                {/* Global Screenshot Disabled Warning */}
+                {!globalSettings.screenshotEnabled && (
+                  <div className="mt-3 flex items-start space-x-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-amber-900">Global Screenshots Disabled</p>
+                      <p className="text-xs text-amber-700 mt-1">
+                        Screenshots are currently disabled globally. This user setting will only take effect when global screenshots are enabled in Settings.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             

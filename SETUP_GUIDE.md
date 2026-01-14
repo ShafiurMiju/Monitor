@@ -23,7 +23,7 @@ cd server
 npm install
 node index.js
 ```
-The server will run on `http://localhost:4000`
+The server will run on `http://103.130.11.114:3001`
 
 ### 2. Admin Dashboard Setup
 ```bash
@@ -31,7 +31,7 @@ cd admin-dashboard
 npm install
 npm run dev
 ```
-The dashboard will open in your browser (usually `http://localhost:5173`)
+The dashboard will open in your browser (usually `http://localhost:3000`)
 
 ### 3. Client Agent Setup
 ```bash
@@ -171,7 +171,7 @@ mongodb+srv://odl:odl@2025@cluster0.vb0ajdn.mongodb.net/odl-monitor
 ```
 
 ### Server URL
-- Server: `http://localhost:4000`
+- Server: `http://103.130.11.114:3001`
 - Update in both `client-agent/main.js` and `admin-dashboard/src/App.jsx` if needed
 
 ### JWT Secret
@@ -184,7 +184,7 @@ const JWT_SECRET = 'your-secret-key-change-in-production';
 ## 🐛 Troubleshooting
 
 ### Client Can't Connect
-- Ensure server is running on port 4000
+- Ensure server is running on port 3001
 - Check firewall settings
 - Verify `SERVER_URL` in client-agent
 

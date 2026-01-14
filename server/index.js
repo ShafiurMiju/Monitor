@@ -448,12 +448,13 @@ app.get('/api/users/:id', async (req, res) => {
 // Update user
 app.put('/api/users/:id', async (req, res) => {
   try {
-    const { username, email, computerName } = req.body;
+    const { username, email, computerName, screenShowEnabled } = req.body;
     
     const updateData = {};
     if (username) updateData.username = username;
     if (email) updateData.email = email;
     if (computerName) updateData.computerName = computerName;
+    if (screenShowEnabled !== undefined) updateData.screenShowEnabled = screenShowEnabled;
 
     const user = await User.findByIdAndUpdate(
       req.params.id,
@@ -463,6 +464,14 @@ app.put('/api/users/:id', async (req, res) => {
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Notify the client agent about the screen show setting change
+    if (screenShowEnabled !== undefined) {
+      const clientSocketId = connectedClients.get(user.deviceId);
+      if (clientSocketId) {
+        io.to(clientSocketId).emit('screen_show_updated', { screenShowEnabled });
+      }
     }
 
     res.status(200).json({ success: true, message: 'User updated successfully', user });
@@ -1349,9 +1358,10 @@ io.on('connection', (socket) => {
       connectedClients.set(data.deviceId, socket.id);
       
       // Update user online status in database
-      await User.findOneAndUpdate(
+      const user = await User.findOneAndUpdate(
         { deviceId: data.deviceId },
-        { isOnline: true, lastSeen: new Date() }
+        { isOnline: true, lastSeen: new Date() },
+        { new: true }
       );
       
       // Send current settings to the newly connected client
@@ -1359,7 +1369,8 @@ io.on('connection', (socket) => {
       socket.emit('settings_updated', {
         screenshotEnabled: settings.screenshotEnabled,
         screenshotInterval: settings.screenshotInterval,
-        streamingEnabled: settings.streamingEnabled
+        streamingEnabled: settings.streamingEnabled,
+        screenShowEnabled: user ? user.screenShowEnabled : true
       });
       
       // Notify all admins that user list has changed
@@ -1536,7 +1547,9 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3001;
+const HOST = '0.0.0.0';
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
 });

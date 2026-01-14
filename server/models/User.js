@@ -51,6 +51,10 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  screenShowEnabled: {
+    type: Boolean,
+    default: true // Admin can control whether screenshots are enabled for this user
+  },
   lastSeen: {
     type: Date,
     default: Date.now

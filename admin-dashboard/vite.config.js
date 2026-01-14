@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    port: parseInt(process.env.PORT) || 5173,
+    port: parseInt(process.env.PORT) || 3000,
     allowedHosts: [
       'monitor-client-gsbf.onrender.com',
       '.onrender.com', // Allow all Render subdomains

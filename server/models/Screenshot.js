@@ -25,6 +25,14 @@ const screenshotSchema = new mongoose.Schema({
   computerName: {
     type: String,
     default: ''
+  },
+  screenIndex: {
+    type: Number,
+    default: 0
+  },
+  totalScreens: {
+    type: Number,
+    default: 1
   }
 });
 

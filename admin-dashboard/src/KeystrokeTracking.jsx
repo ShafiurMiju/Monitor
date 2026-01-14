@@ -26,7 +26,7 @@ ChartJS.register(
   Filler
 );
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:4000";
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://103.130.11.114:3001";
 
 function KeystrokeTracking({ user, onClose }) {
   const [sessions, setSessions] = useState([]);
